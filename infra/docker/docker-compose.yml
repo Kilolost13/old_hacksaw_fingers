@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   gateway:
-    build: ./gateway
+    build: ../../services/gateway
     ports:
       - "8000:8000"
     environment:
@@ -35,7 +35,7 @@ services:
       - default
 
   ai_brain:
-    build: ./ai_brain
+    build: ../../services/ai_brain
     ports:
       - "9004:9004"
     environment:
@@ -87,7 +87,7 @@ services:
       - default
 
   cam:
-    build: ./cam
+    build: ../../services/cam
     ports:
       - "9007:9007"
     environment:
@@ -111,7 +111,7 @@ services:
       - default
 
   financial:
-    build: ./financial
+    build: ../../services/financial
     ports:
       - "9005:9005"
     environment:
@@ -130,7 +130,7 @@ services:
       - default
 
   habits:
-    build: ./habits
+    build: ../../services/habits
     ports:
       - "9003:9003"
     environment:
@@ -149,7 +149,7 @@ services:
       - default
 
   library_of_truth:
-    build: ./library_of_truth
+    build: ../../services/library_of_truth
     ports:
       - "9006:9006"
     environment:
@@ -168,7 +168,7 @@ services:
       - default
 
   meds:
-    build: ./meds
+    build: ../../services/meds
     ports:
       - "9001:9001"
     environment:
@@ -187,14 +187,12 @@ services:
       - default
 
   reminder:
-    build:
-      context: ..
-      dockerfile: microservice/reminder/Dockerfile
+    build: ../../services/reminder
     ports:
       - "9002:9002"
     environment:
       - ALLOW_NETWORK=false  # Air-gapped deployment: no external network access
-    command: uvicorn microservice.reminder.main:app --host 0.0.0.0 --port 9002
+    command: uvicorn main:app --host 0.0.0.0 --port 9002
     volumes:
       - reminder_data:/data
     healthcheck:
@@ -207,7 +205,7 @@ services:
       - default
 
   ml_engine:
-    build: ./ml_engine
+    build: ../../services/ml_engine
     ports:
       - "9008:9008"
     environment:
@@ -228,7 +226,7 @@ services:
 
   frontend:
     build:
-      context: ./frontend/kilo-react-frontend
+      context: ../../frontend/kilo-react-frontend
       dockerfile: Dockerfile
     ports:
       - "3000:80"
@@ -245,7 +243,7 @@ services:
       - default
 
   voice:
-    build: ./voice
+    build: ../../services/voice
     ports:
       - "9009:9009"
     environment:
@@ -265,14 +263,12 @@ services:
       - default
 
   usb_transfer:
-    build:
-      context: ..
-      dockerfile: microservice/usb_transfer/Dockerfile
+    build: ../../services/usb_transfer
     ports:
       - "8006:8006"
     environment:
       - ALLOW_NETWORK=false  # Air-gapped deployment: no external network access
-    command: uvicorn microservice.usb_transfer.main:app --host 0.0.0.0 --port 8006
+    command: uvicorn main:app --host 0.0.0.0 --port 8006
     volumes:
       - usb_config:/etc/kilo
       - /media:/media:ro  # Read-only access to mounted USB devices

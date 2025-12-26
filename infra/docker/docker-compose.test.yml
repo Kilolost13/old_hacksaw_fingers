@@ -6,7 +6,7 @@ version: '3.8'
 
 services:
   gateway:
-    build: ./gateway
+    build: ../../services/gateway
     ports:
       - "8000:8000"
     environment:
@@ -28,7 +28,7 @@ services:
       - default
 
   ai_brain:
-    build: ./ai_brain
+    build: ../../services/ai_brain
     ports:
       - "9004:9004"
     environment:
@@ -44,7 +44,7 @@ services:
       - default
 
   financial:
-    build: ./financial
+    build: ../../services/financial
     ports:
       - "9005:9005"
     environment:
@@ -56,7 +56,7 @@ services:
       - default
 
   habits:
-    build: ./habits
+    build: ../../services/habits
     ports:
       - "9003:9003"
     environment:
@@ -68,7 +68,7 @@ services:
       - default
 
   library_of_truth:
-    build: ./library_of_truth
+    build: ../../services/library_of_truth
     ports:
       - "9006:9006"
     environment:
@@ -80,7 +80,7 @@ services:
       - default
 
   meds:
-    build: ./meds
+    build: ../../services/meds
     ports:
       - "9001:9001"
     environment:
@@ -92,7 +92,7 @@ services:
       - default
 
   reminder:
-    build: ./reminder
+    build: ../../services/reminder
     ports:
       - "9002:9002"
     environment:
@@ -103,7 +103,7 @@ services:
       - default
 
   ml_engine:
-    build: ./ml_engine
+    build: ../../services/ml_engine
     ports:
       - "9008:9008"
     environment:
@@ -117,7 +117,7 @@ services:
 
   frontend:
     build:
-      context: ./frontend/kilo-react-frontend
+      context: ../../frontend/kilo-react-frontend
       dockerfile: Dockerfile
     ports:
       - "3000:80"
@@ -128,7 +128,7 @@ services:
       - default
 
   voice:
-    build: ./voice
+    build: ../../services/voice
     ports:
       - "9009:9009"
     environment:
