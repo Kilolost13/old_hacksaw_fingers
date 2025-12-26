@@ -1,0 +1,47 @@
+name: Auto-merge PRs on CI success
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+jobs:
+  automerge:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge PR for successful run
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const sha = run.head_sha;
+
+            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: sha,
+            });
+
+            for (const pr of prs) {
+              // only merge open, non-draft PRs with a clean mergeable state
+              if (pr.state === 'open' && !pr.draft) {
+                // fetch up-to-date PR details (mergeable_state may be stale)
+                const { data: prFull } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                });
+
+                if (prFull.mergeable_state === 'clean') {
+                  await github.rest.pulls.merge({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: pr.number,
+                    merge_method: 'squash',
+                    commit_title: `Auto-merge PR #${pr.number}: ${pr.title}`,
+                  });
+                }
+              }
+            }

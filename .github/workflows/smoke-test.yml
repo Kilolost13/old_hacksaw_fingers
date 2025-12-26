@@ -1,0 +1,47 @@
+name: Docker Compose smoke test
+
+on:
+  push:
+    paths:
+      - 'microservice/**'
+  workflow_dispatch: {}
+
+jobs:
+  compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and start compose stack
+        working-directory: ./microservice
+        run: |
+          docker-compose build --parallel
+          docker-compose up -d --remove-orphans
+
+      - name: Wait for services
+        working-directory: ./microservice
+        run: |
+          for i in {1..30}; do
+            echo "Waiting for ai_brain... ($i)"
+            if docker-compose ps | grep ai_brain | grep healthy >/dev/null 2>&1; then
+              echo "ai_brain healthy"
+              break
+            fi
+            sleep 5
+          done
+
+      - name: Run smoke test script
+        working-directory: ./microservice
+        run: |
+          chmod +x ./scripts/smoke_test.sh
+          ./scripts/smoke_test.sh localhost 9004 8000
+
+      - name: Tear down compose
+        if: always()
+        working-directory: ./microservice
+        run: |
+          docker-compose down --volumes --remove-orphans

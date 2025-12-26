@@ -1,0 +1,30 @@
+name: CI Failure Reporter
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+jobs:
+  report:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create issue on CI failure
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const sha = run.head_sha;
+            const url = run.html_url;
+            const title = `CI failure: workflow run ${run.name} (${run.conclusion})`;
+            const body = `CI workflow **${run.name}** failed for commit ${sha}.\n\nRun details: ${url}\n\nThis issue was created automatically for triage.`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['ci-failure']
+            });
