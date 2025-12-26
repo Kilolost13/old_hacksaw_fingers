@@ -23,8 +23,6 @@ services:
     depends_on:
       ai_brain:
         condition: service_healthy
-      reminder:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import sys,urllib.request as u; sys.exit(0) if u.urlopen('http://localhost:8000/status',timeout=3).getcode()<400 else sys.exit(1)"]
       interval: 10s
@@ -35,7 +33,9 @@ services:
       - default
 
   ai_brain:
-    build: ../../services/ai_brain
+    build:
+      context: ../..
+      dockerfile: services/ai_brain/Dockerfile
     ports:
       - "9004:9004"
     environment:

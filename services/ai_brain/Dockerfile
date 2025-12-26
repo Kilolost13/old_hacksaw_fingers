@@ -1,8 +1,11 @@
 FROM python:3.11-slim
 WORKDIR /app
 
+# Copy shared models from the monorepo root (build context is repo root)
+COPY shared /app/shared
+
 # Copy source into /app/ai_brain so the package is available as 'ai_brain'
-COPY . /app/ai_brain
+COPY services/ai_brain /app/ai_brain
 
 # Copy models directory for offline/air-gapped deployment (if exists)
 # Run package_models.sh first to populate this directory

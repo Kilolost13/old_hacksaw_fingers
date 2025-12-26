@@ -1,11 +1,11 @@
 # Re-export the canonical models defined at the package root to avoid duplicate table definitions.
 # This ensures importing `ai_brain.models` returns the same classes used across
 # the monorepo and prevents SQLModel/SQLAlchemy from re-defining tables.
-from microservice.models import *  # noqa: F401,F403
+from shared.models import *  # noqa: F401,F403
 
 __all__ = []
 try:
-    from microservice.models import __all__ as _root_all  # noqa: F401
+    from shared.models import __all__ as _root_all  # noqa: F401
     __all__ = list(_root_all)
 except Exception:
     # Fallback; if importing fails in some contexts, leave __all__ empty.

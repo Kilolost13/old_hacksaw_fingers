@@ -37,7 +37,7 @@ def search_memories(
     Returns:
         List of (Memory, similarity_score) tuples, sorted by relevance
     """
-    from microservice.models import Memory
+    from shared.models import Memory
     from .embeddings import embed_text, cosine_similarity
     
     # Generate query embedding
@@ -193,7 +193,7 @@ def get_memory_timeline(
     Returns:
         List of memories in reverse chronological order (newest first)
     """
-    from microservice.models import Memory
+    from shared.models import Memory
     
     query = session.query(Memory).order_by(Memory.created_at.desc())
     
@@ -238,7 +238,7 @@ def delete_memory(memory_id: int, session) -> bool:
     Returns:
         True if deleted, False if not found
     """
-    from microservice.models import Memory
+    from shared.models import Memory
     
     memory = session.query(Memory).filter(Memory.id == memory_id).first()
     if memory:
@@ -263,7 +263,7 @@ def update_memory_privacy(memory_id: int, privacy_label: str, session) -> bool:
     Returns:
         True if updated, False if not found
     """
-    from microservice.models import Memory
+    from shared.models import Memory
     
     valid_labels = ['public', 'private', 'confidential']
     if privacy_label not in valid_labels:

@@ -32,7 +32,7 @@ def consolidate_old_memories(
     Returns:
         Dictionary with consolidation statistics
     """
-    from microservice.models import Memory
+    from shared.models import Memory
     from .embeddings import embed_text
     
     cutoff_date = datetime.utcnow() - timedelta(days=days_old)
@@ -130,7 +130,7 @@ def cleanup_expired_memories(session, dry_run: bool = False) -> int:
     Returns:
         Number of expired memories deleted
     """
-    from microservice.models import Memory
+    from shared.models import Memory
     
     all_memories = session.query(Memory).filter(Memory.ttl_seconds.isnot(None)).all()
     
@@ -169,7 +169,7 @@ def optimize_embeddings(session, dry_run: bool = False) -> int:
     Returns:
         Number of embeddings updated
     """
-    from microservice.models import Memory
+    from shared.models import Memory
     from .embeddings import embed_text, get_embedding_model
     
     # Check if we have a real embedding model

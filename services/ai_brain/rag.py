@@ -215,7 +215,7 @@ def store_conversation_memory(
     Returns:
         Memory ID
     """
-    from microservice.models import Memory
+    from shared.models import Memory
     from .embeddings import embed_text
     
     # Create text blob combining query and response

@@ -13,7 +13,7 @@ def test_ingest_creates_memory():
 
     from ai_brain.main import app
     from ai_brain.db import get_session
-    from microservice.models import Memory
+    from shared.models import Memory
 
     client = TestClient(app)
     with client:

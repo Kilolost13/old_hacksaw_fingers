@@ -94,20 +94,13 @@ from contextlib import asynccontextmanager
 try:
     from .db import get_session
 except Exception:
-    try:
-        # Try absolute package import (when running tests or module executed differently)
-        from ai_brain.db import get_session
-    except Exception:
-        # Final fallback for unusual execution contexts
-        from microservice.ai_brain.db import get_session
+    # Try absolute package import (when running tests or module executed differently)
+    from ai_brain.db import get_session
 
 try:
     from .utils.network import require_network_or_raise
 except Exception:
-    try:
-        from ai_brain.utils.network import require_network_or_raise
-    except Exception:
-        from microservice.ai_brain.utils.network import require_network_or_raise
+    from ai_brain.utils.network import require_network_or_raise
 
 
 def _get_memory_model():
@@ -116,11 +109,11 @@ def _get_memory_model():
     Try a few import locations so the function works both when the ai_brain
     package is executed in isolation and when tests import the project with
     the repository root on sys.path (where the module is available as
-    `microservice.models`).
+    `shared.models`).
     """
     candidates = [
         "models",
-        "microservice.models",
+        "shared.models",
         "ai_brain.models",
     ]
     for cand in candidates:

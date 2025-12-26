@@ -63,7 +63,7 @@ def init_db(env_var_name: str = 'AI_BRAIN_DB_URL', fallback_db_url: str = 'sqlit
     try:
         # Ensure model modules are imported so SQLModel.metadata includes their tables
         try:
-            import microservice.models
+            import shared.models
         except Exception:
             pass
         try:
