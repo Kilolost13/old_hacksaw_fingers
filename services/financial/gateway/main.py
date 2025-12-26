@@ -22,7 +22,7 @@ app.add_middleware(
 )
 
 # admin tokens DB (simple centralized token store for admin UI/automation)
-from microservice.db import get_engine
+from shared.db import get_engine
 
 # Centralized engine selection
 engine = get_engine('GATEWAY_DB_URL', 'sqlite:////data/gateway.db')

@@ -1,4 +1,4 @@
-from . import USBTransferService, USBDevice, DataExport
+from __init__ import USBTransferService, USBDevice, DataExport
 
 # Singleton service instance
 _service = USBTransferService()

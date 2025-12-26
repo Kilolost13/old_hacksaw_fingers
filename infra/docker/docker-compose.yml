@@ -44,7 +44,7 @@ services:
       - TTS_PROVIDER=none  # Use local Piper via voice service
       - LIBRARY_URL=http://library_of_truth:9006
       - OLLAMA_URL=http://ollama:11434
-      - OLLAMA_MODEL=llama3.1:8b-instruct-q5_K_M  # Upgraded from tinyllama
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:8b}  # Read from .env, fallback to llama3.1:8b
       - LLM_PROVIDER=ollama
     command: uvicorn ai_brain.main:app --host 0.0.0.0 --port 9004
     volumes:
@@ -111,7 +111,9 @@ services:
       - default
 
   financial:
-    build: ../../services/financial
+    build:
+      context: ../..
+      dockerfile: services/financial/Dockerfile
     ports:
       - "9005:9005"
     environment:
@@ -187,7 +189,9 @@ services:
       - default
 
   reminder:
-    build: ../../services/reminder
+    build:
+      context: ../..
+      dockerfile: services/reminder/Dockerfile
     ports:
       - "9002:9002"
     environment:
@@ -263,7 +267,9 @@ services:
       - default
 
   usb_transfer:
-    build: ../../services/usb_transfer
+    build:
+      context: ../..
+      dockerfile: services/usb_transfer/Dockerfile
     ports:
       - "8006:8006"
     environment:

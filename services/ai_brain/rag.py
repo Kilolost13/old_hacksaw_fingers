@@ -147,7 +147,7 @@ def _generate_ollama_response(prompt: str, model: Optional[str] = None) -> str:
         response = httpx.post(
             f"{ollama_url}/api/generate",
             json=payload,
-            timeout=60
+            timeout=180
         )
         
         if response.status_code == 200:

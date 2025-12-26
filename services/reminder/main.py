@@ -12,7 +12,7 @@ import threading
 import requests
 
 # Reminder models - import shared definitions to avoid duplicate table registration
-from microservice.models import Reminder, ReminderPreset
+from shared.models import Reminder, ReminderPreset
 
 # optional centralized admin validation client (gateway) - lazy import below
 gateway_validate_token = None
@@ -21,7 +21,7 @@ def allow_network():
     """Check if network egress is allowed via ALLOW_NETWORK env var."""
     return os.getenv('ALLOW_NETWORK', 'false').lower() in ('true', '1', 'yes')
 
-from microservice.db import get_engine
+from db import get_engine
 
 def _get_engine():
     # Delegate to centralized engine selection to ensure consistent test behavior
@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
         pass
     try:
         # ensure Notification table exists if the model is available
-        from microservice.models import Notification
+        from shared.models import Notification
         Notification.__table__.create(engine, checkfirst=True)
     except Exception:
         pass
@@ -135,7 +135,7 @@ def _require_admin(request: Request):
     global gateway_validate_token
     if gateway_validate_token is None:
         try:
-            from microservice.gateway.admin_client import validate_token as _gval
+            from shared.gateway.admin_client import validate_token as _gval
             gateway_validate_token = _gval
         except Exception:
             gateway_validate_token = None
@@ -180,7 +180,7 @@ def _send_reminder(reminder_id: int):
             # If no external notifier or it failed, persist a Notification row locally
             if not sent_ok:
                 try:
-                    from microservice.models import Notification
+                    from shared.models import Notification
                     # ensure table exists before inserting (tests may import in different orders)
                     try:
                         Notification.__table__.create(engine, checkfirst=True)

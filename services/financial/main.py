@@ -12,7 +12,7 @@ import re
 import base64
 from contextlib import asynccontextmanager
 from db import get_engine
-from microservice.models import Transaction, ReceiptItem
+from shared.models import Transaction, ReceiptItem
 # Financial models
 # Use shared models where appropriate to avoid duplicate definitions during test collection
 

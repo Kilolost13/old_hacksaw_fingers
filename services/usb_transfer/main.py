@@ -9,8 +9,10 @@ from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional
 import logging
 from datetime import datetime
+from dataclasses import asdict
 
-from . import usb_service, USBDevice, DataExport
+import usb_service
+from usb_service import USBDevice, DataExport
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

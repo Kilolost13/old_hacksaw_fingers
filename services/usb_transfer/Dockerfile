@@ -10,12 +10,15 @@ RUN apt-get update && apt-get install -y \
 # Create app directory
 WORKDIR /app
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy shared models first (for future use)
+COPY shared /app/shared
 
-# Copy source code
-COPY . .
+# Copy service code
+COPY services/usb_transfer /app/usb_transfer
+WORKDIR /app/usb_transfer
+
+# Copy requirements and install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Create config directory
 RUN mkdir -p /etc/kilo
