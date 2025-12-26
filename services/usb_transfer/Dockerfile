@@ -11,10 +11,10 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy requirements first for better caching
-COPY microservice/usb_transfer/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code from repository root so package structure (microservice/) is present
+# Copy source code
 COPY . .
 
 # Create config directory
@@ -30,5 +30,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Ensure Python can import the package from /app
 ENV PYTHONPATH=/app
 
-# Run the application via uvicorn using the package import path so relative imports work
-CMD ["uvicorn", "microservice.usb_transfer.main:app", "--host", "0.0.0.0", "--port", "8006"]
+# Run the application via uvicorn
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8006"]
