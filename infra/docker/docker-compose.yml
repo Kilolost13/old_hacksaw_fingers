@@ -238,7 +238,7 @@ services:
     environment:
       - ALLOW_NETWORK=false  # Air-gapped deployment: no external network access
     healthcheck:
-      test: ["CMD", "python", "-c", "import sys,urllib.request as u; sys.exit(0) if u.urlopen('http://localhost/',timeout=3).getcode()<400 else sys.exit(1)"]
+      test: ["CMD", "curl", "-f", "http://localhost/"]
       interval: 30s
       timeout: 3s
       retries: 3
