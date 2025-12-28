@@ -9,9 +9,8 @@ interface Reminder {
   title: string;
   description: string;
   reminder_time: string;
-  is_recurring: boolean;
-  is_active: boolean;
-  created_at: string;
+  recurring: boolean;
+  created_at?: string;
 }
 
 const Reminders: React.FC = () => {
@@ -23,7 +22,7 @@ const Reminders: React.FC = () => {
     title: '',
     description: '',
     reminder_time: '',
-    is_recurring: false
+    recurring: false
   });
 
   useEffect(() => {
@@ -33,7 +32,7 @@ const Reminders: React.FC = () => {
   const fetchReminders = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/reminder');
+      const response = await api.get('/reminder/reminders');
       setReminders(response.data.reminders || []);
     } catch (error) {
       console.error('Failed to fetch reminders:', error);
@@ -46,9 +45,9 @@ const Reminders: React.FC = () => {
   const handleAddReminder = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/reminder', reminderForm);
+      await api.post('/reminder/reminders', reminderForm);
       setShowAddReminder(false);
-      setReminderForm({ title: '', description: '', reminder_time: '', is_recurring: false });
+      setReminderForm({ title: '', description: '', reminder_time: '', recurring: false });
       fetchReminders();
     } catch (error) {
       console.error('Failed to add reminder:', error);
@@ -57,7 +56,7 @@ const Reminders: React.FC = () => {
 
   const handleDeleteReminder = async (id: number) => {
     try {
-      await api.delete(`/reminder/${id}`);
+      await api.delete(`/reminder/reminders/${id}`);
       fetchReminders();
     } catch (error) {
       console.error('Failed to delete reminder:', error);
@@ -145,8 +144,8 @@ const Reminders: React.FC = () => {
                 <input
                   type="checkbox"
                   id="recurring"
-                  checked={reminderForm.is_recurring}
-                  onChange={(e) => setReminderForm({ ...reminderForm, is_recurring: e.target.checked })}
+                  checked={reminderForm.recurring}
+                  onChange={(e) => setReminderForm({ ...reminderForm, recurring: e.target.checked })}
                   className="w-4 h-4"
                 />
                 <label htmlFor="recurring" className="text-sm font-semibold text-zombie-green">
@@ -212,17 +211,12 @@ const Reminders: React.FC = () => {
                     <span>{formatReminderTime(reminder.reminder_time)}</span>
                   </div>
 
-                  {reminder.is_recurring && (
+                  {reminder.recurring && (
                     <div className="flex items-center gap-2 text-zombie-green">
                       <span>🔄</span>
                       <span>Recurring</span>
                     </div>
                   )}
-
-                  <div className="flex items-center gap-2 text-zombie-green">
-                    <span className={`w-2 h-2 rounded-full ${reminder.is_active ? 'bg-green-500' : 'bg-gray-500'}`} />
-                    <span>{reminder.is_active ? 'Active' : 'Inactive'}</span>
-                  </div>
                 </div>
               </Card>
             ))}

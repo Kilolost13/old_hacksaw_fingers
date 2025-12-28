@@ -385,6 +385,101 @@ def list_reminders():
         return session.exec(select(Reminder)).all()
 
 
+@app.get("/reminders")
+def get_reminders():
+    """List all reminders with frontend-compatible format"""
+    with Session(engine) as session:
+        reminders = session.exec(select(Reminder)).all()
+        # Transform to frontend format
+        result = []
+        for r in reminders:
+            result.append({
+                "id": r.id,
+                "title": r.text,
+                "description": "",  # Backend doesn't store description
+                "reminder_time": r.when,
+                "recurring": bool(r.recurrence),
+                "created_at": None
+            })
+        return {"reminders": result}
+
+
+@app.post("/reminders")
+async def create_reminder(request: Request):
+    """Create a reminder using frontend schema"""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+
+    # Extract frontend fields
+    title = body.get("title", "")
+    description = body.get("description", "")
+    reminder_time = body.get("reminder_time", "")
+    recurring = body.get("recurring", False)
+
+    if not title or not reminder_time:
+        raise HTTPException(status_code=422, detail="title and reminder_time are required")
+
+    # Validate reminder_time format
+    try:
+        datetime.fromisoformat(reminder_time)
+    except Exception:
+        raise HTTPException(status_code=422, detail="invalid reminder_time format, use ISO format")
+
+    # Transform to backend schema
+    # Combine title and description into text field
+    text = title
+    if description:
+        text = f"{title} - {description}"
+
+    # Convert recurring boolean to recurrence string
+    recurrence = None
+    if recurring:
+        recurrence = "daily"  # Default to daily for recurring reminders
+
+    # Create reminder using backend schema
+    reminder = Reminder(
+        text=text,
+        when=reminder_time,
+        recurrence=recurrence,
+        sent=False
+    )
+
+    with Session(engine) as session:
+        session.add(reminder)
+        session.commit()
+        session.refresh(reminder)
+        _schedule_reminder(reminder)
+
+        # Return in frontend format
+        return {
+            "id": reminder.id,
+            "title": title,
+            "description": description,
+            "reminder_time": reminder.when,
+            "recurring": bool(reminder.recurrence),
+            "created_at": None
+        }
+
+
+@app.delete("/reminders/{reminder_id}")
+async def delete_reminder_plural(reminder_id: int, request: Request):
+    """Delete a reminder using plural endpoint"""
+    _require_admin(request)
+    with Session(engine) as session:
+        db_r = session.get(Reminder, reminder_id)
+        if not db_r:
+            raise HTTPException(status_code=404, detail="Reminder not found")
+        session.delete(db_r)
+        session.commit()
+        try:
+            _scheduler.remove_job(f"reminder_{reminder_id}")
+        except Exception:
+            pass
+        return {"ok": True}
+
+
 @app.get("/presets")
 def list_presets():
     with Session(engine) as session:
