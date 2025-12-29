@@ -203,13 +203,12 @@ class USBTransferService:
                         stat = item.stat()
                         size_gb = stat.st_size / (1024**3) if stat.st_size > 0 else 0
 
-                        # Normalize device_id to a string. Support Path.name (str),
-                        # MagicMock._mock_name (used in tests), or fallback to basename of mount path.
-                        name_val = getattr(item, 'name', None)
-                        if isinstance(name_val, str):
-                            dev_id = name_val
-                        else:
-                            dev_id = getattr(item, '_mock_name', None) or os.path.basename(str(item))
+                        # Normalize device_id to a string. Prefer MagicMock._mock_name (used in tests),
+                        # then Path.name (str), then fallback to basename of mount path.
+                        dev_id = getattr(item, '_mock_name', None) or getattr(item, 'name', None) or os.path.basename(str(item))
+                        # Ensure we have a plain string
+                        if not isinstance(dev_id, str):
+                            dev_id = str(dev_id)
 
                         device = USBDevice(
                             mount_point=str(item),

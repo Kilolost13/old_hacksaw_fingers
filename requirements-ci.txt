@@ -12,3 +12,8 @@ pillow
 alembic
 APScheduler
 networkx
+# Additional CI/test deps added by automation
+prometheus_client
+numpy
+opencv-python-headless
+cryptography
