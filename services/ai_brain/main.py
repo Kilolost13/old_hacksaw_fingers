@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import uuid
@@ -211,7 +211,40 @@ async def lifespan(app: FastAPI):
         logger.error(f"Error during shutdown: {e}")
 
 
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+
+# Prometheus metrics
+REQUEST_COUNT = Counter('ai_brain_requests_total', 'Total HTTP requests', ['method', 'endpoint', 'status'])
+REQUEST_LATENCY = Histogram('ai_brain_request_latency_seconds', 'Request latency', ['method', 'endpoint'])
+IN_PROGRESS = Gauge('ai_brain_inprogress_requests', 'In-progress requests')
+
 app = FastAPI(title="AI Brain Service", lifespan=lifespan)
+
+# Middleware to collect metrics
+@app.middleware("http")
+async def metrics_middleware(request, call_next):
+    method = request.method
+    # Use path without query for metric labels
+    endpoint = request.url.path
+    IN_PROGRESS.inc()
+    start = request.scope.get('time_start', None)
+    with REQUEST_LATENCY.labels(method=method, endpoint=endpoint).time():
+        try:
+            response = await call_next(request)
+            status = str(response.status_code)
+            REQUEST_COUNT.labels(method=method, endpoint=endpoint, status=status).inc()
+            return response
+        except Exception as e:
+            # On error, increment error counter and re-raise
+            REQUEST_COUNT.labels(method=method, endpoint=endpoint, status='500').inc()
+            raise
+        finally:
+            IN_PROGRESS.dec()
+
+# Expose Prometheus metrics endpoint
+@app.get('/metrics')
+async def metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # Mount orchestration routes if available
 import logging
