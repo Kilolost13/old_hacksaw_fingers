@@ -19,6 +19,7 @@ services:
       - ML_ENGINE_URL=http://ml_engine:9008
       - VOICE_URL=http://voice:9009
       - USB_TRANSFER_URL=http://usb_transfer:8006
+      - LIBRARY_ADMIN_KEY=${LIBRARY_ADMIN_KEY}
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     volumes:
       - gateway_data:/data

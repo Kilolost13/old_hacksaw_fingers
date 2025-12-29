@@ -19,8 +19,17 @@ spec:
       - name: meds
         image: kilo/meds:latest
         ports: [{containerPort:9001}]
-        readinessProbe: {httpGet: {path: /health, port: 9001}, initialDelaySeconds: 5, periodSeconds: 10}
-        resources: {requests: {cpu: "100m", memory: "128Mi"}, limits: {cpu: "500m", memory: "512Mi"}}
+        livenessProbe:
+          httpGet: {path: /health, port: 9001}
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet: {path: /health, port: 9001}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests: {cpu: "100m", memory: "128Mi"}
+          limits: {cpu: "500m", memory: "512Mi"}
 ---
 apiVersion: v1
 kind: Service
@@ -45,7 +54,17 @@ spec:
       - name: reminder
         image: kilo/reminder:latest
         ports: [{containerPort:9002}]
-        readinessProbe: {httpGet: {path: /, port: 9002}, initialDelaySeconds: 5, periodSeconds: 10}
+        livenessProbe:
+          httpGet: {path: /, port: 9002}
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet: {path: /, port: 9002}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests: {cpu: "100m", memory: "128Mi"}
+          limits: {cpu: "500m", memory: "512Mi"}
 
 ---
 apiVersion: v1
@@ -71,6 +90,17 @@ spec:
       - name: habits
         image: kilo/habits:latest
         ports: [{containerPort:9003}]
+        livenessProbe:
+          httpGet: {path: /health, port: 9003}
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet: {path: /health, port: 9003}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests: {cpu: "100m", memory: "128Mi"}
+          limits: {cpu: "500m", memory: "512Mi"}
 
 ---
 apiVersion: v1
