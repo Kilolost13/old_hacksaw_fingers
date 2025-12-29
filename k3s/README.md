@@ -25,6 +25,19 @@ Expose & Ingress:
 Prometheus scraping:
 - Prometheus should scrape `gateway:8000/admin/ai_brain/metrics` using a bearer token file.
 
+Token creation & secret setup (recommended steps):
+1. Create a persistent admin token (if needed):
+   TOKEN=$(curl -s -X POST -H "X-Admin-Token: ${LIBRARY_ADMIN_KEY:-kilo-secure-admin-2024}" http://localhost:8000/admin/tokens | jq -r .token)
+   # If the above returns null (tokens exist), use the first token from listing:
+   if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then TOKEN=$(curl -s -H "X-Admin-Token: ${LIBRARY_ADMIN_KEY:-kilo-secure-admin-2024}" http://localhost:8000/admin/tokens | jq -r '.tokens[0].token'); fi
+
+2. Save the token into a file and create a Kubernetes secret in the monitoring namespace:
+   echo -n "$TOKEN" > prometheus-token.txt
+   kubectl -n monitoring create secret generic gateway-admin-token --from-file=token=prometheus-token.txt
+
+3. Use `k3s/prometheus-values.yaml` or ServiceMonitor to configure scraping and mount the token file into Prometheus.
+
+
 Rolling upgrades and resilience:
 - Use `kubectl rollout status deployment/kilo-gateway -n kilo-guardian` to monitor upgrades.
 - Add PodDisruptionBudgets and HPAs as needed.
