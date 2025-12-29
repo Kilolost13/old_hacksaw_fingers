@@ -23,9 +23,25 @@ echo "Creating placeholder service account secrets for Prometheus scraping (fill
 kubectl -n monitoring create secret generic gateway-admin-token --from-literal=token=REPLACE_ME || true
 kubectl -n monitoring create secret generic ai-brain-metrics-token --from-literal=token=REPLACE_ME || true
 
+# If a token file exists locally, create the secret from it (useful for automated flows)
+if [ -f "k3s/prometheus-token.txt" ]; then
+  echo "Found k3s/prometheus-token.txt — creating gateway-admin-token secret in 'monitoring' namespace"
+  kubectl -n monitoring create secret generic gateway-admin-token --from-file=token=k3s/prometheus-token.txt --dry-run=client -o yaml | kubectl apply -f - || true
+fi
+
+# Install Prometheus stack via Helm if helm is available
+if command -v helm >/dev/null 2>&1; then
+  echo "Helm detected — installing kube-prometheus-stack into 'monitoring' namespace (if not present)"
+  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
+  helm repo update || true
+  helm upgrade --install monitoring prometheus-community/kube-prometheus-stack -n monitoring --create-namespace -f k3s/prometheus-values.yaml || true
+else
+  echo "Helm not found; skipping helm install. Install helm and then run: helm upgrade --install monitoring prometheus-community/kube-prometheus-stack -n monitoring --create-namespace -f k3s/prometheus-values.yaml"
+fi
+
 cat <<'EOF'
 Done. Next steps:
-  - Install Prometheus stack via Helm into 'monitoring' namespace and configure to use k3s/prometheus-values.yaml
-  - Replace REPLACE_ME tokens with actual gateway/admin token content (from /admin/tokens)
+  - If helm was not installed, install helm and re-run this script to deploy Prometheus.
+  - Ensure gateway-admin-token secret contains the actual token value (k3s/prometheus-token.txt) for scraping.
   - For air-gapped deployments, preload images into k3s containerd before applying manifests
 EOF
