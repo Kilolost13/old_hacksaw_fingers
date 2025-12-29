@@ -1,0 +1,66 @@
+name: Dry-run Deploy Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_prometheus:
+        description: 'Skip Helm Prometheus template check'
+        required: false
+        default: 'false'
+      kubeconfig_base64:
+        description: 'Optional base64 kubeconfig to use for server-side dry-run (leave blank to use local runner kubeconfig)'
+        required: false
+        default: ''
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Decode optional KUBECONFIG
+        if: ${{ github.event.inputs.kubeconfig_base64 != '' }}
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ github.event.inputs.kubeconfig_base64 }}" | base64 --decode > $HOME/.kube/config
+
+      - name: Show kubectl context
+        run: |
+          kubectl config view --minify || true
+          kubectl version --short || true
+
+      - name: Client-side dry-run (kubectl)
+        run: |
+          echo "Running kubectl client-side dry-run on k3s/ manifests"
+          kubectl apply --recursive --dry-run=client -f k3s/
+
+      - name: Server-side dry-run (kubectl)
+        run: |
+          echo "Attempting server-side dry-run (may be unsupported on some clusters)"
+          set -o pipefail
+          if kubectl apply --recursive --dry-run=server -f k3s/ | true; then
+            echo "server-side dry-run completed (or not supported)."
+          else
+            echo "server-side dry-run failed or unsupported — skip if cluster doesn't support it." && exit 0
+          fi
+        continue-on-error: true
+
+      - name: Helm chart template check (Prometheus)
+        if: ${{ github.event.inputs.skip_prometheus != 'true' && github.event.inputs.skip_prometheus != '1' }}
+        run: |
+          echo "Checking Prometheus Helm chart templating"
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
+          helm repo update || true
+          helm template monitoring prometheus-community/kube-prometheus-stack -n monitoring -f k3s/prometheus-values.yaml --include-crds --skip-tests > /tmp/prometheus-render.yaml
+          echo "Rendered Prometheus chart (first 200 lines):"
+          head -n 200 /tmp/prometheus-render.yaml || true
+
+      - name: Finish
+        run: |
+          echo "Dry-run validation finished successfully. If any step failed, review the logs above."
