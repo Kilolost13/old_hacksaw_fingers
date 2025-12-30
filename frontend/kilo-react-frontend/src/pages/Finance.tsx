@@ -39,13 +39,6 @@ interface FinancialGoal {
 }
 
 const Finance: React.FC = () => {
-    // Debug: log budgets before rendering
-    useEffect(() => {
-      if (budgets) {
-        // eslint-disable-next-line no-console
-        console.log('DEBUG: Budgets from backend:', budgets);
-      }
-    }, [budgets]);
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -58,6 +51,13 @@ const Finance: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
   const [showAddTransaction, setShowAddTransaction] = useState(false);
+  // Debug: log budgets after declaration
+  useEffect(() => {
+    if (budgets) {
+      // eslint-disable-next-line no-console
+      console.log('DEBUG: Budgets from backend:', budgets);
+    }
+  }, [budgets]);
   const [showAddBudget, setShowAddBudget] = useState(false);
   const [showAddGoal, setShowAddGoal] = useState(false);
   const [transactionForm, setTransactionForm] = useState({
@@ -429,7 +429,7 @@ const Finance: React.FC = () => {
           ) : (
             <div className="space-y-2 mb-2">
               {(Array.isArray(budgets) ? budgets.filter(b => b && typeof b === 'object') : []).map((budget, idx) => {
-                // Defensive fallback for undefined/null/malformed values
+                // Extra defensive: handle malformed/undefined budget objects
                 let spent = 0;
                 let monthly_limit = 0;
                 let percentage = 0;
@@ -445,13 +445,22 @@ const Finance: React.FC = () => {
                   } else {
                     percentage = 0;
                   }
+                } else {
+                  // If budget is not an object, log and skip rendering
+                  console.error('[FINANCE] Malformed budget object at idx', idx, budget);
+                  return null;
                 }
                 // Log all values for debugging
                 // eslint-disable-next-line no-console
                 console.log(`[BUDGET DEBUG] idx=${idx} id=${budget.id} category=${budget.category} spent=${spent} monthly_limit=${monthly_limit} percentage=${percentage}`);
                 let percentageDisplay;
-                if (Number.isFinite(percentage) && typeof percentage === 'number') {
-                  percentageDisplay = `${percentage.toFixed(0)}%`;
+                if (Number.isFinite(percentage)) {
+                  try {
+                    percentageDisplay = `${Number(percentage).toFixed(0)}%`;
+                  } catch (e) {
+                    console.error('[FINANCE] Error in toFixed for percentage:', percentage, e);
+                    percentageDisplay = '0%';
+                  }
                 } else {
                   console.error('[FINANCE] Invalid percentage for budget:', percentage);
                   percentageDisplay = '0%';
@@ -497,9 +506,6 @@ const Finance: React.FC = () => {
                   </Card>
                 );
               })}
-                  </div>
-                </Card>
-              ))}
             </div>
           )}
         </div>
@@ -606,7 +612,7 @@ const Finance: React.FC = () => {
                 // eslint-disable-next-line no-console
                 console.log(`[GOAL DEBUG] id=${goal.id} name=${goal.name} current_amount=${safeCurrent} target_amount=${safeTarget} progress=${progress}`);
                 let progressDisplay;
-                if (Number.isFinite(progress) && typeof progress === 'number') {
+                if (Number.isFinite(progress)) {
                   progressDisplay = `${progress.toFixed(0)}%`;
                 } else {
                   console.error('[FINANCE] Invalid progress for goal:', progress);

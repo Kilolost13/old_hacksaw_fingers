@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Request
+from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy import text
 from sqlmodel import SQLModel, Session, Field, select
 from typing import Optional, List, Dict
@@ -101,7 +102,11 @@ async def lifespan(app: FastAPI):
         pass
 
 
+
 app = FastAPI(title="Financial Service", lifespan=lifespan)
+
+# Instrument Prometheus metrics
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 
 # Health check endpoints
@@ -185,22 +190,32 @@ def list_transactions():
 
 @app.get("/summary")
 def get_financial_summary():
+    def safe_number(val):
+        try:
+            if val is None:
+                return 0.0
+            num = float(val)
+            if num != num or num is None:  # NaN or None
+                return 0.0
+            return num
+        except Exception:
+            return 0.0
     with Session(engine) as session:
         transactions = session.exec(select(Transaction)).all()
-        total_income = sum(t.amount for t in transactions if t.amount > 0)
-        total_expenses = sum(t.amount for t in transactions if t.amount < 0)
+        total_income = sum(safe_number(t.amount) for t in transactions if safe_number(t.amount) > 0)
+        total_expenses = sum(safe_number(t.amount) for t in transactions if safe_number(t.amount) < 0)
         balance = total_income + total_expenses
         # Aggregate by category from receipt items for a simple analytics view
         receipt_items = session.exec(select(ReceiptItem)).all()
         by_category: Dict[str, float] = {}
         for it in receipt_items:
             cat = _categorize_item(it.name)
-            by_category[cat] = by_category.get(cat, 0) + it.price
+            by_category[cat] = by_category.get(cat, 0) + safe_number(it.price)
         return {
-            "total_income": total_income,
-            "total_expenses": total_expenses,
-            "balance": balance,
-            "spend_by_category": by_category,
+            "total_income": float(total_income),
+            "total_expenses": float(total_expenses),
+            "balance": float(balance),
+            "spend_by_category": {k: float(safe_number(v)) for k, v in by_category.items()},
             "transaction_count": len(transactions)
         }
 
@@ -286,9 +301,38 @@ def delete_transaction(transaction_id: int):
 # Budget endpoints
 @app.get("/budgets")
 def get_budgets():
+    def safe_number(val):
+        try:
+            if val is None:
+                return 0.0
+            num = float(val)
+            if num != num or num is None:
+                return 0.0
+            return num
+        except Exception:
+            return 0.0
     with Session(engine) as session:
         budgets = session.exec(select(Budget)).all()
-        return budgets
+        # Calculate spent and percentage for each budget
+        transactions = session.exec(select(Transaction)).all()
+        now = datetime.datetime.utcnow()
+        current_month = now.strftime('%Y-%m')
+        out = []
+        for b in budgets:
+            # Sum expenses for this category in the current month
+            spent = sum(
+                abs(safe_number(t.amount))
+                for t in transactions
+                if t.category == b.category and safe_number(t.amount) < 0 and t.date.startswith(current_month)
+            )
+            monthly_limit = safe_number(b.monthly_limit)
+            percentage = (spent / monthly_limit * 100) if monthly_limit > 0 else 0
+            d = b.dict()
+            d['spent'] = float(spent)
+            d['percentage'] = float(percentage)
+            d['monthly_limit'] = float(monthly_limit)
+            out.append(d)
+        return out
 
 
 @app.post("/budgets")
@@ -332,9 +376,29 @@ def delete_budget(budget_id: int):
 # Goal endpoints
 @app.get("/goals")
 def get_goals():
+    def safe_number(val):
+        try:
+            if val is None:
+                return 0.0
+            num = float(val)
+            if num != num or num is None:
+                return 0.0
+            return num
+        except Exception:
+            return 0.0
     with Session(engine) as session:
         goals = session.exec(select(Goal)).all()
-        return goals
+        out = []
+        for g in goals:
+            target_amount = safe_number(g.target_amount)
+            current_amount = safe_number(g.current_amount)
+            progress = (current_amount / target_amount * 100) if target_amount > 0 else 0
+            d = g.dict()
+            d['progress'] = float(progress)
+            d['target_amount'] = float(target_amount)
+            d['current_amount'] = float(current_amount)
+            out.append(d)
+        return out
 
 
 @app.post("/goals")
