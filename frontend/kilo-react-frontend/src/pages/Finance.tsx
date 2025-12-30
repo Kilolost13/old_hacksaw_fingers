@@ -39,6 +39,13 @@ interface FinancialGoal {
 }
 
 const Finance: React.FC = () => {
+    // Debug: log budgets before rendering
+    useEffect(() => {
+      if (budgets) {
+        // eslint-disable-next-line no-console
+        console.log('DEBUG: Budgets from backend:', budgets);
+      }
+    }, [budgets]);
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -421,43 +428,70 @@ const Finance: React.FC = () => {
             </Card>
           ) : (
             <div className="space-y-2 mb-2">
-              {budgets.map((budget) => (
-                <Card key={budget.id} className="py-2 px-3">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <h3 className="font-bold text-zombie-green text-sm">{budget.category}</h3>
-                        <p className="text-xs text-zombie-green">
-                          {formatCurrency(budget.spent)} / {formatCurrency(budget.monthly_limit)}
-                        </p>
+              {(Array.isArray(budgets) ? budgets.filter(b => b && typeof b === 'object') : []).map((budget, idx) => {
+                // Defensive fallback for undefined/null/malformed values
+                let spent = 0;
+                let monthly_limit = 0;
+                let percentage = 0;
+                if (budget && typeof budget === 'object') {
+                  spent = Number(budget.spent);
+                  monthly_limit = Number(budget.monthly_limit);
+                  if (!Number.isFinite(spent)) spent = 0;
+                  if (!Number.isFinite(monthly_limit)) monthly_limit = 0;
+                  if ('percentage' in budget && Number.isFinite(budget.percentage)) {
+                    percentage = budget.percentage;
+                  } else if (monthly_limit > 0) {
+                    percentage = (spent / monthly_limit) * 100;
+                  } else {
+                    percentage = 0;
+                  }
+                }
+                // Log all values for debugging
+                // eslint-disable-next-line no-console
+                console.log(`[BUDGET DEBUG] idx=${idx} id=${budget.id} category=${budget.category} spent=${spent} monthly_limit=${monthly_limit} percentage=${percentage}`);
+                return (
+                  <Card key={budget.id || Math.random()} className="py-2 px-3">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <h3 className="font-bold text-zombie-green text-sm">{budget.category || 'Unknown'}</h3>
+                          <p className="text-xs text-zombie-green">
+                            {formatCurrency(spent)} / {formatCurrency(monthly_limit)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-bold ${
+                            Number.isFinite(percentage) && percentage >= 100 ? 'text-red-400' :
+                            Number.isFinite(percentage) && percentage >= 80 ? 'text-yellow-400' : 'text-green-400'
+                          }`}>
+                            {Number.isFinite(percentage)
+                              ? percentage.toFixed(0)
+                              : '0'}%
+                          </span>
+                          <button
+                            onClick={() => handleDeleteBudget(budget.id)}
+                            className="text-red-500 hover:text-red-700 text-lg"
+                          >
+                            ×
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-sm font-bold ${
-                          budget.percentage >= 100 ? 'text-red-400' :
-                          budget.percentage >= 80 ? 'text-yellow-400' : 'text-green-400'
-                        }`}>
-                          {budget.percentage.toFixed(0)}%
-                        </span>
-                        <button
-                          onClick={() => handleDeleteBudget(budget.id)}
-                          className="text-red-500 hover:text-red-700 text-lg"
-                        >
-                          ×
-                        </button>
+                      <div className="w-full bg-zombie-dark rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full ${getBudgetColor(Number.isFinite(percentage) ? percentage : 0)}`}
+                          style={{ width: `${Math.min(Number.isFinite(percentage) ? percentage : 0, 100)}%` }}
+                        ></div>
                       </div>
+                      {Number.isFinite(percentage) && percentage >= 100 && (
+                        <p className="text-xs text-red-400 font-semibold">⚠️ Over budget!</p>
+                      )}
+                      {Number.isFinite(percentage) && percentage >= 80 && percentage < 100 && (
+                        <p className="text-xs text-yellow-400 font-semibold">⚠️ Approaching limit</p>
+                      )}
                     </div>
-                    <div className="w-full bg-zombie-dark rounded-full h-2">
-                      <div
-                        className={`h-2 rounded-full ${getBudgetColor(budget.percentage)}`}
-                        style={{ width: `${Math.min(budget.percentage, 100)}%` }}
-                      ></div>
-                    </div>
-                    {budget.percentage >= 100 && (
-                      <p className="text-xs text-red-400 font-semibold">⚠️ Over budget!</p>
-                    )}
-                    {budget.percentage >= 80 && budget.percentage < 100 && (
-                      <p className="text-xs text-yellow-400 font-semibold">⚠️ Approaching limit</p>
-                    )}
+                  </Card>
+                );
+              })}
                   </div>
                 </Card>
               ))}
@@ -561,7 +595,11 @@ const Finance: React.FC = () => {
           ) : (
             <div className="space-y-2 mb-2">
               {goals.map((goal) => {
-                const progress = calculateGoalProgress(goal.current_amount, goal.target_amount);
+                const safeCurrent = Number.isFinite(goal.current_amount) ? goal.current_amount : 0;
+                const safeTarget = Number.isFinite(goal.target_amount) ? goal.target_amount : 0;
+                const progress = calculateGoalProgress(safeCurrent, safeTarget);
+                // eslint-disable-next-line no-console
+                console.log(`[GOAL DEBUG] id=${goal.id} name=${goal.name} current_amount=${safeCurrent} target_amount=${safeTarget} progress=${progress}`);
                 const monthlyRate = 100; // Mock monthly savings rate
                 return (
                   <Card key={goal.id} className="py-2 px-3">
@@ -570,12 +608,12 @@ const Finance: React.FC = () => {
                         <div className="flex-1">
                           <h3 className="font-bold text-zombie-green text-sm">{goal.name}</h3>
                           <p className="text-xs text-zombie-green">
-                            {formatCurrency(goal.current_amount)} / {formatCurrency(goal.target_amount)}
+                            {formatCurrency(safeCurrent)} / {formatCurrency(safeTarget)}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-bold text-blue-400">
-                            {progress.toFixed(0)}%
+                            {Number.isFinite(progress) ? progress.toFixed(0) : '0'}%
                           </span>
                           <button
                             onClick={() => handleDeleteGoal(goal.id)}
