@@ -39,9 +39,6 @@ interface FinancialGoal {
 }
 
 const Finance: React.FC = () => {
-    // Debug log: print all budgets before rendering
-    // eslint-disable-next-line no-console
-    console.log('[FINANCE DEBUG] Raw budgets array:', budgets);
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -454,7 +451,8 @@ const Finance: React.FC = () => {
                   return null;
                 }
                 // (Debug log removed from JSX for build compatibility)
-                let percentageDisplay = `${(ratio * 100).toFixed(0)}%`;
+                let percentage = ratio * 100; // Convert ratio (0-1) to percentage (0-100)
+                let percentageDisplay = `${percentage.toFixed(0)}%`;
                 return (
                   <Card key={budget.id || Math.random()} className="py-2 px-3">
                     <div className="space-y-2">
@@ -467,8 +465,8 @@ const Finance: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`text-sm font-bold ${
-                            Number.isFinite(percentage) && percentage >= 100 ? 'text-red-400' :
-                            Number.isFinite(percentage) && percentage >= 80 ? 'text-yellow-400' : 'text-green-400'
+                            percentage >= 100 ? 'text-red-400' :
+                            percentage >= 80 ? 'text-yellow-400' : 'text-green-400'
                           }`}>
                             {percentageDisplay}
                           </span>
@@ -482,14 +480,14 @@ const Finance: React.FC = () => {
                       </div>
                       <div className="w-full bg-zombie-dark rounded-full h-2">
                         <div
-                          className={`h-2 rounded-full ${getBudgetColor(Number.isFinite(percentage) ? percentage : 0)}`}
-                          style={{ width: `${Math.min(Number.isFinite(percentage) ? percentage : 0, 100)}%` }}
+                          className={`h-2 rounded-full ${getBudgetColor(percentage)}`}
+                          style={{ width: `${Math.min(percentage, 100)}%` }}
                         ></div>
                       </div>
-                      {Number.isFinite(percentage) && percentage >= 100 && (
+                      {percentage >= 100 && (
                         <p className="text-xs text-red-400 font-semibold">⚠️ Over budget!</p>
                       )}
-                      {Number.isFinite(percentage) && percentage >= 80 && percentage < 100 && (
+                      {percentage >= 80 && percentage < 100 && (
                         <p className="text-xs text-yellow-400 font-semibold">⚠️ Approaching limit</p>
                       )}
                     </div>
@@ -633,6 +631,7 @@ const Finance: React.FC = () => {
                       </div>
                       <div className="w-full bg-zombie-dark rounded-full h-2">
                         <div
+                          className="h-2 rounded-full bg-blue-500"
                           style={{ width: `${progress}%` }}
                         ></div>
                       </div>
