@@ -217,6 +217,19 @@ def list_transactions():
             items = session.exec(select(ReceiptItem).where(ReceiptItem.transaction_id == t.id)).all()
             d = t.dict()
             d["items"] = [it.dict() for it in items]
+            # Derive transaction_type for frontend (income vs expense)
+            d["transaction_type"] = "income" if (d.get("amount") or 0) > 0 else "expense"
+            # Derive category: use most common receipt item category, else categorize description
+            if items:
+                cat_counts = {}
+                for it in items:
+                    cat = (it.category or "uncategorized").lower()
+                    cat_counts[cat] = cat_counts.get(cat, 0) + 1
+                d["category"] = max(cat_counts, key=cat_counts.get)
+            else:
+                d["category"] = _categorize_item(d.get("description") or "")
+            # Provide created_at for UI consistency
+            d.setdefault("created_at", d.get("date"))
             out.append(d)
         return out
 
@@ -661,6 +674,132 @@ def ingest_document(file: UploadFile = File(...), kind: str = "auto", background
         raise HTTPException(status_code=500, detail=f"ingestion failed: {e}")
 
 
+@app.get("/ingested-documents")
+def get_ingested_documents(limit: int = 50):
+    """List all ingested documents with their processing status"""
+    with Session(engine) as session:
+        docs = session.exec(
+            select(IngestedDocument).order_by(IngestedDocument.created_at.desc()).limit(limit)
+        ).all()
+        return {"documents": [doc.dict() for doc in docs]}
+
+
+@app.delete("/ingested-documents/{doc_id}")
+def delete_ingested_document(doc_id: int, purge_file: bool = True):
+    """Delete an ingested document and any transactions/items sourced from it"""
+    with Session(engine) as session:
+        doc = session.get(IngestedDocument, doc_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        # Delete transactions and receipt items sourced from this document
+        if doc.source_tag:
+            txs = session.exec(select(Transaction).where(Transaction.source == doc.source_tag)).all()
+            for tx in txs:
+                items = session.exec(select(ReceiptItem).where(ReceiptItem.transaction_id == tx.id)).all()
+                for it in items:
+                    session.delete(it)
+                session.delete(tx)
+
+        # Remove document record
+        session.delete(doc)
+        session.commit()
+
+    # Remove stored file if requested (best-effort)
+    if purge_file:
+        try:
+            fname = f"{doc.sha256}{Path(doc.filename or '').suffix}"
+            fpath = UPLOAD_DIR / fname
+            if fpath.exists():
+                fpath.unlink()
+        except Exception:
+            pass
+
+    return {"deleted": doc_id, "purged_file": purge_file}
+
+
+@app.get("/spending/analytics")
+def get_spending_analytics():
+    """Generate spending analytics and insights from transactions"""
+    with Session(engine) as session:
+        transactions = session.exec(select(Transaction)).all()
+        receipt_items = session.exec(select(ReceiptItem)).all()
+        
+        if not transactions:
+            return {
+                "total_transactions": 0,
+                "insights": ["No transactions found. Upload some documents to get started!"]
+            }
+        
+        # Calculate totals
+        total_spent = sum(abs(t.amount) for t in transactions if t.amount < 0)
+        total_income = sum(t.amount for t in transactions if t.amount > 0)
+        
+        # Category breakdown
+        category_spending = {}
+        for item in receipt_items:
+            cat = item.category or 'uncategorized'
+            category_spending[cat] = category_spending.get(cat, 0) + item.price
+        
+        # Monthly trends
+        monthly_spending = {}
+        for t in transactions:
+            try:
+                month = datetime.datetime.fromisoformat(t.date).strftime("%Y-%m")
+                monthly_spending[month] = monthly_spending.get(month, 0) + abs(t.amount)
+            except Exception:
+                pass
+        
+        # Top categories
+        top_categories = sorted(category_spending.items(), key=lambda x: x[1], reverse=True)[:5]
+        
+        # Most frequent items
+        item_counts = {}
+        for item in receipt_items:
+            item_counts[item.name] = item_counts.get(item.name, 0) + 1
+        top_items = sorted(item_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        
+        # Generate insights
+        insights = []
+        if total_spent > 0:
+            insights.append(f"💰 Total spending: ${total_spent:.2f}")
+        if total_income > 0:
+            insights.append(f"💵 Total income: ${total_income:.2f}")
+        
+        if top_categories:
+            top_cat, top_amt = top_categories[0]
+            insights.append(f"🏆 Top spending category: {top_cat} (${top_amt:.2f})")
+        
+        if len(monthly_spending) >= 2:
+            months = sorted(monthly_spending.items())
+            recent = months[-1][1]
+            prev = months[-2][1]
+            change = ((recent - prev) / prev * 100) if prev > 0 else 0
+            trend = "📈 increased" if change > 0 else "📉 decreased"
+            insights.append(f"Spending {trend} by {abs(change):.1f}% from last month")
+        
+        if top_items:
+            top_item, count = top_items[0]
+            insights.append(f"🛒 Most purchased: {top_item} ({count}x)")
+        
+        # Average transaction
+        avg_transaction = total_spent / len([t for t in transactions if t.amount < 0]) if transactions else 0
+        if avg_transaction > 0:
+            insights.append(f"📊 Average transaction: ${avg_transaction:.2f}")
+        
+        return {
+            "total_transactions": len(transactions),
+            "total_spent": total_spent,
+            "total_income": total_income,
+            "category_breakdown": category_spending,
+            "top_categories": top_categories,
+            "monthly_trends": sorted(monthly_spending.items()),
+            "top_items": top_items,
+            "insights": insights,
+            "average_transaction": avg_transaction
+        }
+
+
 @app.post("/admin/recalculate_categories")
 def recalculate_categories(request: Request, background_tasks: BackgroundTasks):
     """Trigger re-categorization. Requires ADMIN_TOKEN header when ADMIN_TOKEN is set.
@@ -791,48 +930,108 @@ def _parse_statement_transactions(text: str) -> List[Dict[str, object]]:
     txs: List[Dict[str, object]] = []
     today = datetime.datetime.utcnow().date()
 
+    # More flexible patterns for various statement formats
     patterns = [
-        re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<desc>.+?)\s+(?P<amount>[()+\-]?\d+[.,]\d{2})$"),
-        re.compile(r"^(?P<date>\d{2}/\d{2}/\d{4})\s+(?P<desc>.+?)\s+(?P<amount>[()+\-]?\d+[.,]\d{2})$"),
-        re.compile(r"^(?P<desc>.+?)\s+(?P<amount>[()+\-]?\d+[.,]\d{2})$")
+        # ISO date: 2024-01-15 Description $123.45
+        re.compile(r"(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<desc>.+?)\s+(?P<amount>[()\-\+$€£]?\s*\d+[.,]\d{2})"),
+        # US date: 01/15/2024 Description $123.45
+        re.compile(r"(?P<date>\d{1,2}/\d{1,2}/\d{2,4})\s+(?P<desc>.+?)\s+(?P<amount>[()\-\+$€£]?\s*\d+[.,]\d{2})"),
+        # UK date: 15/01/2024 Description £123.45
+        re.compile(r"(?P<date>\d{1,2}/\d{1,2}/\d{2,4})\s+(?P<desc>[^0-9]+?)\s+(?P<amount>[()\-\+$€£]?\s*\d+[.,]\d{2})"),
+        # Date with dashes: 15-01-2024 Description 123.45
+        re.compile(r"(?P<date>\d{1,2}-\d{1,2}-\d{2,4})\s+(?P<desc>.+?)\s+(?P<amount>[()\-\+$€£]?\s*\d+[.,]\d{2})"),
+        # Description only with amount at end: Something here 123.45
+        re.compile(r"(?P<desc>.+?)\s+(?P<amount>[()\-\+$€£]?\s*\d+[.,]\d{2})\s*$"),
     ]
+
+    # Look for any line with a money amount
+    money_pattern = re.compile(r"[()\-\+$€£]?\s*\d+[.,]\d{2}")
 
     def _normalize_date(ds: Optional[str]) -> str:
         if not ds:
             return today.isoformat()
         try:
+            ds = ds.strip()
             if "/" in ds:
-                m, d, y = ds.split("/")
-                return datetime.date(int(y), int(m), int(d)).isoformat()
+                parts = ds.split("/")
+                if len(parts) == 3:
+                    # Try MM/DD/YYYY (US format)
+                    try:
+                        m, d, y = parts
+                        if len(y) == 2:
+                            y = "20" + y
+                        return datetime.date(int(y), int(m), int(d)).isoformat()
+                    except:
+                        # Try DD/MM/YYYY (UK format)
+                        d, m, y = parts
+                        if len(y) == 2:
+                            y = "20" + y
+                        return datetime.date(int(y), int(m), int(d)).isoformat()
+            elif "-" in ds:
+                parts = ds.split("-")
+                if len(parts) == 3:
+                    # Try YYYY-MM-DD
+                    if len(parts[0]) == 4:
+                        return datetime.date.fromisoformat(ds).isoformat()
+                    # Try DD-MM-YYYY
+                    d, m, y = parts
+                    if len(y) == 2:
+                        y = "20" + y
+                    return datetime.date(int(y), int(m), int(d)).isoformat()
             return datetime.date.fromisoformat(ds).isoformat()
         except Exception:
             return today.isoformat()
 
     for line in lines:
+        # Skip header/footer lines
+        if len(line) < 10 or any(keyword in line.lower() for keyword in [
+            'page', 'statement', 'balance', 'total', 'account', 'beginning', 'ending', 'summary'
+        ]):
+            continue
+        
+        # Only process lines with money amounts
+        if not money_pattern.search(line):
+            continue
+
         matched = None
         for pat in patterns:
-            m = pat.match(line)
+            m = pat.search(line)
             if m:
                 matched = m
                 break
+        
         if not matched:
             continue
+            
         gd = matched.groupdict()
-        desc = gd.get("desc") or "item"
-        amt_raw = gd.get("amount", "0")
-        # handle parentheses negatives
-        sign = -1.0 if amt_raw.startswith("(") and amt_raw.endswith(")") else 1.0
-        amt = _normalize_price(amt_raw)
-        amt *= sign
+        desc = gd.get("desc", "Transaction").strip()
+        amt_raw = gd.get("amount", "0").strip()
+        
+        # Skip if description is too short or just numbers
+        if len(desc) < 3 or desc.isdigit():
+            continue
+        
+        # Handle parentheses negatives and signs
+        is_negative = amt_raw.startswith("(") and amt_raw.endswith(")")
+        amt_raw = re.sub(r"[()$€£\s]", "", amt_raw)
+        
+        try:
+            amt = _normalize_price(amt_raw)
+            if is_negative:
+                amt = -abs(amt)
+        except:
+            continue
+        
         date_str = _normalize_date(gd.get("date"))
+        
         txs.append({
-            "description": desc.strip(),
+            "description": desc.strip()[:100],  # Limit description length
             "amount": float(amt),
             "date": date_str,
             "category": _categorize_item(desc),
         })
 
-    # deduplicate by desc+amount+date
+    # Deduplicate by desc+amount+date
     seen = set()
     deduped = []
     for tx in txs:
@@ -841,6 +1040,8 @@ def _parse_statement_transactions(text: str) -> List[Dict[str, object]]:
             continue
         seen.add(key)
         deduped.append(tx)
+    
+    print(f"[PARSER] Extracted {len(deduped)} transactions from {len(lines)} lines")
     return deduped
 
 

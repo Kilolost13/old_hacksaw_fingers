@@ -365,6 +365,9 @@ async def _proxy(request: Request, service: str, path: str):
     # The Host header should be the service's host, not the gateway's
     headers["host"] = service_url.split("://")[1].split(":")[0]
 
+    # Remove content-length as we may be streaming
+    headers.pop("content-length", None)
+
     # Use a slightly more robust request with timing and retries for slow endpoints
     retries = 2
     backoff = 0.5
@@ -373,13 +376,27 @@ async def _proxy(request: Request, service: str, path: str):
         for attempt in range(1, retries + 1):
             start_ts = time.time()
             try:
-                req = client.build_request(
-                    request.method,
-                    url,
-                    headers=headers,
-                    params=request.query_params,
-                    content=await request.body()
-                )
+                # Check if this is a multipart/form-data request (file upload)
+                content_type = request.headers.get("content-type", "")
+
+                if "multipart/form-data" in content_type:
+                    # For multipart, stream the body directly to preserve boundaries
+                    req = client.build_request(
+                        request.method,
+                        url,
+                        headers=headers,
+                        params=request.query_params,
+                        content=request.stream()  # Stream instead of body()
+                    )
+                else:
+                    # For regular requests, use body
+                    req = client.build_request(
+                        request.method,
+                        url,
+                        headers=headers,
+                        params=request.query_params,
+                        content=await request.body()
+                    )
                 resp = await client.send(req, stream=True)
                 elapsed = time.time() - start_ts
 

@@ -280,7 +280,7 @@ async def _fan_out_med(med: Med):
     }, tag="MEDS->AI")
 
 def process_ocr_job(job_id: str):
-    """Background worker to process OCR job"""
+    """Background worker to process OCR job via AI Brain's intelligent analysis"""
     with Session(engine) as session:
         job = session.query(OcrJob).filter(OcrJob.job_id == job_id).first()
         if not job:
@@ -300,37 +300,51 @@ def process_ocr_job(job_id: str):
             if not image_path.exists():
                 raise FileNotFoundError(f"Image not found: {image_path}")
 
-            img = Image.open(image_path)
+            print(f"[OCR] Sending to AI Brain for intelligent analysis...")
 
-            # Preprocess and run OCR
-            print(f"[OCR] Preprocessing image...")
-            processed = preprocess_image_for_ocr(img)
+            # Send to AI Brain's /analyze/prescription endpoint (with LLM parsing)
+            import httpx
+            with open(image_path, 'rb') as img_file:
+                files = {'image': ('prescription.jpg', img_file, 'image/jpeg')}
 
-            print(f"[OCR] Running Tesseract OCR...")
-            text = pytesseract.image_to_string(processed, config='--psm 6')
-            job.ocr_text = text
+                # Call AI Brain with timeout (synchronous for background worker)
+                with httpx.Client(timeout=300.0) as client:
+                    response = client.post(
+                        "http://kilo-ai-brain:9004/analyze/prescription",
+                        files=files
+                    )
 
-            print(f"[OCR] Extracted {len(text)} characters of text")
+                    if response.status_code != 200:
+                        raise Exception(f"AI Brain returned {response.status_code}: {response.text}")
 
-            # Parse medication data from OCR text
-            name = re.search(r"(?:Name|Drug|Medication|Med|Rx):?\s*[:]*\s*([A-Z][A-Za-z0-9\-]+)", text, re.I)
-            schedule = re.search(r"(?:Take|Sig|Schedule):?\s*[:]*\s*([^\n]+)", text, re.I)
-            dosage = re.search(r"(?:Dosage|Dose):?\s*[:]*\s*(\d+\s*(?:mg|ml|mcg))", text, re.I)
-            quantity = re.search(r"(?:Qty|Quantity|Qiy|Q|iy)[:\.\s]*(\d+)", text, re.I)
-            prescriber = re.search(r"(?:Dr|Doctor)\.?\s*([A-Za-z\s]+?)(?:\n|$)", text, re.I)
-            instructions = re.search(r"(?:Directions|Instructions|Notes):?\s*[:]*\s*([^\n]+)", text, re.I)
+                    result = response.json()
+                    print(f"[OCR] AI Brain analysis complete: {result.get('success', False)}")
 
-            freq = _parse_frequency(text)
-            times = _parse_times(text)
+                    if not result.get('success'):
+                        raise Exception(result.get('error', 'Analysis failed'))
 
+                    # Extract medication data from AI Brain's LLM-parsed response
+                    ocr_text = result.get('ocr_text', '')
+                    med_data = result.get('parsed_data', {})
+
+                    job.ocr_text = ocr_text
+                    session.add(job)
+                    session.commit()
+
+            # Parse frequency/times from schedule if available
+            schedule_text = med_data.get('schedule', '')
+            freq = _parse_frequency(schedule_text) if schedule_text else 1
+            times = _parse_times(schedule_text) if schedule_text else None
+
+            # Create medication from AI-extracted data
             med = Med(
-                name=name.group(1).strip() if name else "",
-                schedule=schedule.group(1).strip() if schedule else "",
-                dosage=dosage.group(1).strip() if dosage else "",
-                quantity=int(quantity.group(1)) if quantity else 0,
-                prescriber=prescriber.group(1).strip() if prescriber else "",
-                instructions=instructions.group(1).strip() if instructions else "",
-                frequency_per_day=freq or 1,
+                name=med_data.get('medication_name') or med_data.get('name') or 'Unknown Medication',
+                dosage=med_data.get('dosage', ''),
+                schedule=schedule_text,
+                quantity=0,  # AI Brain doesn't extract quantity yet
+                prescriber=med_data.get('prescriber', ''),
+                instructions=med_data.get('instructions', ''),
+                frequency_per_day=freq,
                 times=",".join(times) if times else None,
                 from_ocr=True,
             )
@@ -340,7 +354,7 @@ def process_ocr_job(job_id: str):
             session.commit()
             session.refresh(med)
 
-            print(f"[OCR] Created medication: {med.name} (ID: {med.id})")
+            print(f"[OCR] Created medication via AI Brain: {med.name} (ID: {med.id})")
 
             # Update job with success
             job.status = "completed"
@@ -370,6 +384,8 @@ def process_ocr_job(job_id: str):
 
         except Exception as e:
             print(f"[OCR] Job {job_id} failed: {e}")
+            import traceback
+            traceback.print_exc()
             job.status = "failed"
             job.completed_at = datetime.utcnow().isoformat()
             job.error_message = str(e)

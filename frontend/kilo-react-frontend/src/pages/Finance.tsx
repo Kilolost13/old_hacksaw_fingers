@@ -38,6 +38,30 @@ interface FinancialGoal {
   category: string;
 }
 
+interface IngestedDocument {
+  id: number;
+  filename: string;
+  content_type: string;
+  kind: string;
+  status: string;
+  error?: string;
+  transaction_count: number;
+  created_at: string;
+  extracted_text?: string;
+}
+
+interface SpendingAnalytics {
+  total_transactions: number;
+  total_spent: number;
+  total_income: number;
+  category_breakdown: { [key: string]: number };
+  top_categories: [string, number][];
+  monthly_trends: [string, number][];
+  top_items: [string, number][];
+  insights: string[];
+  average_transaction: number;
+}
+
 const Finance: React.FC = () => {
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -51,6 +75,16 @@ const Finance: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
   const [showAddTransaction, setShowAddTransaction] = useState(false);
+  const [showUploadDocument, setShowUploadDocument] = useState(false);
+  const [showIngestedDocs, setShowIngestedDocs] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
+  const [ingestedDocuments, setIngestedDocuments] = useState<IngestedDocument[]>([]);
+  const [documentKind, setDocumentKind] = useState<'receipt' | 'statement' | 'auto'>('auto');
+  const [serverDocUrl, setServerDocUrl] = useState('');
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [analytics, setAnalytics] = useState<SpendingAnalytics | null>(null);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   // Debug: log budgets after declaration
   useEffect(() => {
     if (budgets) {
@@ -197,6 +231,115 @@ const Finance: React.FC = () => {
     }
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.currentTarget.files;
+    if (!files) return;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const fileKey = `${file.name}-${Date.now()}`;
+      setUploadProgress(prev => ({ ...prev, [fileKey]: 0 }));
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('kind', documentKind);
+
+        const response = await api.post('/financial/ingest/document', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          onUploadProgress: (progressEvent: any) => {
+            const percentCompleted = Math.round(
+              (progressEvent.loaded * 100) / progressEvent.total
+            );
+            setUploadProgress(prev => ({ ...prev, [fileKey]: percentCompleted }));
+          }
+        });
+
+        console.log('Document uploaded successfully:', response.data);
+        setUploadProgress(prev => {
+          const newProgress = { ...prev };
+          delete newProgress[fileKey];
+          return newProgress;
+        });
+
+        fetchIngestedDocuments();
+      } catch (error) {
+        console.error('Failed to upload document:', error);
+        setUploadProgress(prev => {
+          const newProgress = { ...prev };
+          delete newProgress[fileKey];
+          return newProgress;
+        });
+      }
+    }
+
+    // Reset input safely
+    if (e.currentTarget) {
+      e.currentTarget.value = '';
+    }
+    // Refresh analytics after upload
+    fetchAnalytics();
+  };
+
+  const fetchIngestedDocuments = async () => {
+    try {
+      setLoadingDocs(true);
+      const response = await api.get('/financial/ingested-documents');
+      setIngestedDocuments(response.data.documents || []);
+    } catch (error) {
+      console.error('Failed to fetch ingested documents:', error);
+    } finally {
+      setLoadingDocs(false);
+    }
+  };
+
+  const handleDeleteDocument = async (id: number) => {
+    try {
+      await api.delete(`/financial/ingested-documents/${id}`);
+      fetchIngestedDocuments();
+      fetchAnalytics();
+    } catch (error) {
+      console.error('Failed to delete document:', error);
+      alert('Failed to delete document');
+    }
+  };
+
+  const handleServerDocFetch = async () => {
+    if (!serverDocUrl.trim()) {
+      alert('Please enter a server document URL');
+      return;
+    }
+
+    try {
+      setLoadingDocs(true);
+      const response = await api.post('/financial/ingest/from-server', {
+        url: serverDocUrl,
+        kind: documentKind
+      });
+      console.log('Server document fetched:', response.data);
+      setServerDocUrl('');
+      fetchIngestedDocuments();
+      fetchAnalytics();
+    } catch (error) {
+      console.error('Failed to fetch document from server:', error);
+      alert('Failed to fetch document from server');
+    } finally {
+      setLoadingDocs(false);
+    }
+  };
+
+  const fetchAnalytics = async () => {
+    try {
+      setLoadingAnalytics(true);
+      const response = await api.get('/financial/spending/analytics');
+      setAnalytics(response.data);
+    } catch (error) {
+      console.error('Failed to fetch analytics:', error);
+    } finally {
+      setLoadingAnalytics(false);
+    }
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -246,13 +389,42 @@ const Finance: React.FC = () => {
             </Button>
             <h1 className="text-xl font-bold text-zombie-green terminal-glow">💰 FINANCE</h1>
           </div>
-          <Button
-            variant="primary"
-            onClick={() => setShowAddTransaction(!showAddTransaction)}
-            size="sm"
-          >
-            {showAddTransaction ? 'Cancel' : '+ Transaction'}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="primary"
+              onClick={() => setShowUploadDocument(!showUploadDocument)}
+              size="sm"
+            >
+              {showUploadDocument ? '✕' : '📄'} UPLOAD
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShowIngestedDocs(!showIngestedDocs);
+                if (!showIngestedDocs) fetchIngestedDocuments();
+              }}
+              size="sm"
+            >
+              {showIngestedDocs ? '✕' : '📋'} DOCS
+            </Button>
+            <Button
+              variant="success"
+              onClick={() => {
+                setShowAnalytics(!showAnalytics);
+                if (!showAnalytics) fetchAnalytics();
+              }}
+              size="sm"
+            >
+              {showAnalytics ? '✕' : '📊'} INSIGHTS
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => setShowAddTransaction(!showAddTransaction)}
+              size="sm"
+            >
+              {showAddTransaction ? 'Cancel' : '+ Transaction'}
+            </Button>
+          </div>
         </div>
 
         {/* Financial Summary */}
@@ -284,6 +456,227 @@ const Finance: React.FC = () => {
             </div>
           </Card>
         </div>
+
+        {/* Document Upload Section */}
+        {showUploadDocument && (
+          <Card className="mb-2 py-3 px-4">
+            <h2 className="text-base font-bold text-zombie-green terminal-glow mb-3">📄 UPLOAD DOCUMENT</h2>
+            
+            {/* Document Type Selector */}
+            <div className="mb-3 p-3 bg-zombie-dark rounded border-2 border-zombie-green">
+              <p className="text-sm text-zombie-green mb-2 font-semibold">Document Type:</p>
+              <div className="flex gap-2 flex-wrap">
+                {(['auto', 'receipt', 'statement'] as const).map((kind) => (
+                  <button
+                    key={kind}
+                    onClick={() => setDocumentKind(kind)}
+                    className={`px-3 py-1 text-sm rounded font-semibold ${
+                      documentKind === kind
+                        ? 'bg-yellow-500 text-white'
+                        : 'bg-zombie-dark border-2 border-zombie-green text-zombie-green hover:bg-zombie-dark/50'
+                    }`}
+                  >
+                    {kind.charAt(0).toUpperCase() + kind.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* File Upload Area */}
+            <div className="mb-3">
+              <label className="block">
+                <div className="border-2 border-dashed border-zombie-green rounded-lg p-6 text-center cursor-pointer hover:bg-zombie-dark/50 transition">
+                  <p className="text-zombie-green font-semibold mb-2">📁 Drag & drop or click to select</p>
+                  <p className="text-xs text-zombie-green/70">PDF, PNG, JPG, etc.</p>
+                  <input
+                    type="file"
+                    multiple
+                    onChange={handleFileUpload}
+                    accept=".pdf,.png,.jpg,.jpeg,.gif,.doc,.docx"
+                    className="hidden"
+                  />
+                </div>
+              </label>
+            </div>
+
+            {/* Upload Progress */}
+            {Object.entries(uploadProgress).length > 0 && (
+              <div className="mb-3 space-y-2">
+                {Object.entries(uploadProgress).map(([fileKey, progress]) => (
+                  <div key={fileKey} className="space-y-1">
+                    <div className="flex justify-between text-xs text-zombie-green">
+                      <span>{fileKey.split('-')[0]}</span>
+                      <span>{progress}%</span>
+                    </div>
+                    <div className="w-full bg-zombie-dark rounded-full h-2">
+                      <div
+                        className="h-2 rounded-full bg-yellow-500 transition-all"
+                        style={{ width: `${progress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Server Document Fetch */}
+            <div className="border-t-2 border-zombie-green pt-3 mt-3">
+              <p className="text-sm text-zombie-green mb-2 font-semibold">Or fetch from server:</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={serverDocUrl}
+                  onChange={(e) => setServerDocUrl(e.target.value)}
+                  placeholder="Enter server document URL..."
+                  className="flex-1 p-2 text-sm bg-zombie-dark text-zombie-green border-2 border-zombie-green rounded terminal-text"
+                />
+                <Button
+                  onClick={handleServerDocFetch}
+                  variant="success"
+                  size="sm"
+                  disabled={loadingDocs}
+                >
+                  {loadingDocs ? 'Fetching...' : 'Fetch'}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Ingested Documents List */}
+        {showIngestedDocs && (
+          <Card className="mb-2 py-3 px-4">
+            <h2 className="text-base font-bold text-zombie-green terminal-glow mb-3">📋 INGESTED DOCUMENTS</h2>
+            {loadingDocs ? (
+              <p className="text-sm text-zombie-green text-center">Loading documents...</p>
+            ) : ingestedDocuments.length === 0 ? (
+              <p className="text-sm text-zombie-green text-center">No documents uploaded yet</p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {ingestedDocuments.map((doc) => (
+                  <div key={doc.id} className="p-2 bg-zombie-dark rounded border-l-4 border-yellow-500">
+                    <div className="flex justify-between items-start mb-1">
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-zombie-green">{doc.filename}</p>
+                        <p className="text-xs text-zombie-green/70">
+                          Type: <span className="font-mono">{doc.kind}</span> | Uploaded: {formatDate(doc.created_at)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className={`text-xs px-2 py-1 rounded font-semibold ${
+                          doc.status === 'success'
+                            ? 'bg-green-500/30 text-green-300'
+                            : doc.status === 'error'
+                            ? 'bg-red-500/30 text-red-300'
+                            : 'bg-yellow-500/30 text-yellow-300'
+                        }`}>
+                          {doc.status}
+                        </span>
+                        <button
+                          onClick={() => handleDeleteDocument(doc.id)}
+                          className="ml-2 text-xs text-red-300 hover:text-red-500 underline"
+                          title="Delete document and its transactions"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-xs text-zombie-green">
+                      Transactions extracted: <span className="font-bold text-green-400">{doc.transaction_count}</span>
+                    </p>
+                    {doc.error && (
+                      <p className="text-xs text-red-400 mt-1">Error: {doc.error}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* Spending Analytics & Insights */}
+        {showAnalytics && (
+          <Card className="mb-2 py-3 px-4">
+            <h2 className="text-base font-bold text-zombie-green terminal-glow mb-3">📊 SPENDING INSIGHTS</h2>
+            {loadingAnalytics ? (
+              <p className="text-sm text-zombie-green text-center">Crunching the numbers...</p>
+            ) : !analytics ? (
+              <p className="text-sm text-zombie-green text-center">No analytics data available</p>
+            ) : (
+              <div className="space-y-4">
+                {/* Key Insights */}
+                {analytics.insights && analytics.insights.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-semibold text-zombie-green mb-2">💡 Key Insights:</h3>
+                    {analytics.insights.map((insight, idx) => (
+                      <div key={idx} className="p-2 bg-zombie-dark rounded border-l-4 border-yellow-500">
+                        <p className="text-sm text-zombie-green">{insight}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Top Categories */}
+                {analytics.top_categories && analytics.top_categories.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-zombie-green mb-2">🏆 Top Spending Categories:</h3>
+                    <div className="space-y-2">
+                      {analytics.top_categories.map(([category, amount], idx) => (
+                        <div key={idx} className="flex justify-between items-center p-2 bg-zombie-dark rounded">
+                          <span className="text-sm text-zombie-green font-semibold capitalize">{category}</span>
+                          <span className="text-sm text-red-400 font-bold">${amount.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Monthly Trends */}
+                {analytics.monthly_trends && analytics.monthly_trends.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-zombie-green mb-2">📈 Monthly Spending Trends:</h3>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {analytics.monthly_trends.map(([month, amount], idx) => (
+                        <div key={idx} className="flex justify-between items-center text-xs text-zombie-green">
+                          <span>{month}</span>
+                          <span className="font-bold">${amount.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Top Items */}
+                {analytics.top_items && analytics.top_items.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-zombie-green mb-2">🛒 Most Purchased Items:</h3>
+                    <div className="space-y-1">
+                      {analytics.top_items.map(([item, count], idx) => (
+                        <div key={idx} className="flex justify-between items-center text-sm text-zombie-green">
+                          <span>{item}</span>
+                          <span className="px-2 py-1 bg-yellow-500/30 rounded font-bold text-yellow-300">{count}x</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Refresh Analytics Button */}
+                <div className="pt-2 border-t-2 border-zombie-green">
+                  <Button
+                    onClick={fetchAnalytics}
+                    variant="primary"
+                    size="sm"
+                    className="w-full"
+                    disabled={loadingAnalytics}
+                  >
+                    {loadingAnalytics ? 'Refreshing...' : '🔄 Refresh Analytics'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
 
         {/* Add Transaction Form */}
         {showAddTransaction && (
