@@ -7,6 +7,7 @@ import Reminders from './pages/Reminders';
 import Finance from './pages/Finance';
 import Habits from './pages/Habits';
 import Admin from './pages/Admin';
+import GuardianControl from './pages/GuardianControl';
 import './App.css';
 
 function App() {
@@ -24,6 +25,7 @@ function App() {
         <Route path="/finance" element={<Finance />} />
         <Route path="/habits" element={<Habits />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/guardian" element={<GuardianControl />} />
 
         {/* Catch-all route for 404s - redirect to dashboard */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -204,7 +204,8 @@ SERVICE_URLS = {
     "cam": os.getenv("CAM_URL", "http://cam:9007"),
     "ml": os.getenv("ML_ENGINE_URL", "http://ml_engine:9008"),
     "voice": os.getenv("VOICE_URL", "http://voice:9009"),
-    "usb": os.getenv("USB_TRANSFER_URL", "http://usb_transfer:8006"),
+    "usb": os.getenv("USB_TRANSFER_URL", "http://usb_transfer:8010"),
+    "guardian": os.getenv("GUARDIAN_URL", "http://kilo-guardian:8001"),
 }
 
 @app.get("/health")

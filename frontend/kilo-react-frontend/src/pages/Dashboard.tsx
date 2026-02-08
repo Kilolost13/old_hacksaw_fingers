@@ -331,6 +331,7 @@ const Dashboard: React.FC = () => {
     { icon: '🔔', label: 'REMINDERS', path: '/reminders', bgColor: '#9333ea' }, // purple-600
     { icon: '💰', label: 'FINANCE', path: '/finance', bgColor: '#16a34a' }, // green-600
     { icon: '✓', label: 'HABITS', path: '/habits', bgColor: '#ca8a04' }, // yellow-600
+    { icon: '🛡️', label: 'GUARDIAN', path: '/guardian', bgColor: '#dc2626' }, // red-600
   ];
 
   return (

@@ -668,9 +668,11 @@ from kilo_v2.memory_core.api import router as memory_router
 
 # Import routers
 from kilo_v2.routers.finance import router as finance_router
+from kilo_v2.routers.notifications import router as notifications_router
 
 # Register routers
 app.include_router(finance_router, prefix="/api", tags=["finance"])
+app.include_router(notifications_router, prefix="/api", tags=["notifications"])
 app.include_router(memory_router, prefix="/api", tags=["memory"])
 
 # Init Camera Service (CORE FEATURE)

@@ -202,8 +202,8 @@ async def resolve_cluster_ips(registry: "ServiceRegistry"):
             ports = item["spec"].get("ports", [])
             port = ports[0]["port"] if ports else 80
 
-            # Strip "kilo-" prefix and convert hyphens to underscores
-            reg_key = k8s_name.replace("kilo-", "", 1).replace("-", "_")
+            # Strip "kilo-" prefix to match our registry keys
+            reg_key = k8s_name.replace("kilo-", "", 1)
             if reg_key in registry.services and registry.services[reg_key].layer == "k3s":
                 new_url = f"http://{cluster_ip}:{port}"
                 registry.services[reg_key].url = new_url

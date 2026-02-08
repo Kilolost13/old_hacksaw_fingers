@@ -43,6 +43,11 @@ class NotificationConfigUpdate(BaseModel):
 # ===== Notification Endpoints =====
 
 
+@router.get("/notifications/pending", response_model=List[dict])
+def get_pending_notifications():
+    return get_active_notifications()
+
+
 @router.get("/notifications", response_model=List[dict])
 def get_active_notifications():
     """Get all active (unacknowledged) notifications."""

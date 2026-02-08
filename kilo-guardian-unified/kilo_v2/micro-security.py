@@ -3,13 +3,26 @@ from kilo_v2.security_monitor import SecurityMonitor
 import uvicorn
 
 app = FastAPI(title="Kilo Security Microservice")
-# SecurityMonitor might need more setup depending on its __init__
 monitor = SecurityMonitor()
+
+@app.on_event("startup")
+async def startup():
+    monitor.start_monitoring()
 
 @app.post("/api/chat")
 async def chat(query: str = Body(..., embed=True)):
-    # Custom logic for security queries if SecurityMonitor doesn't have execute()
     return {"answer": f"Security Monitor active. Query processed: {query}"}
+
+@app.get("/api/network/stats")
+async def network_stats():
+    return monitor.get_status()
+
+@app.get("/api/network/devices")
+async def network_devices():
+    return {
+        "connections": monitor.network_monitor.get_active_connections(),
+        "suspicious_ips": list(monitor.network_monitor.suspicious_ips)
+    }
 
 @app.get("/health")
 async def health():
