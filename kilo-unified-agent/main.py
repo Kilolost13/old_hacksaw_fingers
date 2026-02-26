@@ -477,6 +477,166 @@ async def files_delete(path: str):
 
 
 # ---------------------------------------------------------------------------
+# Screen capture — screenshot → Gemini Vision → extract data → save to pods
+# ---------------------------------------------------------------------------
+import base64 as _base64
+
+_GATEWAY_URL   = os.getenv("KILO_GATEWAY_URL", "http://192.168.68.57:30801")
+_FINANCIAL_URL = os.getenv("KILO_FINANCIAL_URL", "http://192.168.68.57:30801/api/financial/transactions")
+
+_FINANCIAL_PROMPT = (
+    "This is a screenshot of a bank register, transaction list, or financial page. "
+    "Extract ALL visible transactions. For each return: date (YYYY-MM-DD), "
+    "description/merchant, amount (negative for debits, positive for credits), category. "
+    'Respond ONLY as JSON: {"transactions": [{"date": "YYYY-MM-DD", "description": "...", '
+    '"amount": -12.34, "category": "..."}]}. '
+    'If no transactions are visible, return {"transactions": []}.'
+)
+
+_GENERAL_PROMPT = (
+    "Describe what is visible on this screen. If there are numbers, tables, lists, "
+    "transactions, or any structured data, extract and list them clearly."
+)
+
+
+class CaptureRequest(BaseModel):
+    mode: str = "financial"   # "financial" | "general"
+    save_transactions: bool = True
+
+
+@app.post("/screen/capture")
+async def screen_capture(req: CaptureRequest):
+    """Take a screenshot, send to Gemini Vision, optionally save financial transactions."""
+    import tempfile as _tmp
+
+    # Capture screenshot
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = f"/tmp/kilo_capture_{ts}.png"
+    try:
+        result = _subprocess.run(["scrot", "-o", path], capture_output=True, timeout=5)
+        if result.returncode != 0:
+            result = _subprocess.run(["gnome-screenshot", "-f", path], capture_output=True, timeout=5)
+        if result.returncode != 0 or not _os.path.exists(path):
+            raise RuntimeError("Screenshot failed")
+    except FileNotFoundError:
+        raise HTTPException(500, "No screenshot tool — install scrot")
+    except Exception as e:
+        raise HTTPException(500, f"Screenshot error: {e}")
+
+    try:
+        with open(path, "rb") as f:
+            img_b64 = _base64.b64encode(f.read()).decode()
+    finally:
+        try:
+            _os.remove(path)
+        except Exception:
+            pass
+
+    prompt = _FINANCIAL_PROMPT if req.mode == "financial" else _GENERAL_PROMPT
+
+    # Send to Gemini Vision via ai-brain
+    try:
+        async with _httpx.AsyncClient(timeout=45.0) as client:
+            vision_resp = await client.post(
+                f"{_GATEWAY_URL}/api/ai_brain/vision/analyze",
+                json={"image_base64": img_b64, "prompt": prompt, "source": "screen_capture"},
+            )
+            vision_resp.raise_for_status()
+            result_text = vision_resp.json().get("result", "")
+    except Exception as e:
+        raise HTTPException(502, f"Vision analyze failed: {e}")
+
+    # Parse and save transactions if financial mode
+    transactions_saved = 0
+    errors = []
+    parsed_transactions = []
+
+    if req.mode == "financial" and req.save_transactions:
+        import json as _json, re as _re
+        data = None
+        fence = _re.search(r'```(?:json)?\s*(\{.*?\})\s*```', result_text, _re.DOTALL)
+        if fence:
+            try:
+                data = _json.loads(fence.group(1))
+            except Exception:
+                pass
+        if not data:
+            brace = _re.search(r'\{.*\}', result_text, _re.DOTALL)
+            if brace:
+                try:
+                    data = _json.loads(brace.group())
+                except Exception:
+                    pass
+
+        if data:
+            parsed_transactions = data.get("transactions", [])
+
+            # --- Deduplication: fetch existing transactions and skip matches ---
+            existing_keys: set = set()
+            try:
+                async with _httpx.AsyncClient(timeout=10.0) as client:
+                    existing_resp = await client.get(
+                        f"{_GATEWAY_URL}/api/financial/transactions",
+                        params={"limit": 500},
+                    )
+                    if existing_resp.status_code == 200:
+                        existing = existing_resp.json()
+                        if isinstance(existing, list):
+                            rows = existing
+                        else:
+                            rows = existing.get("transactions", [])
+                        for row in rows:
+                            key = (
+                                str(row.get("date", ""))[:10],
+                                str(row.get("description", "")).strip().lower()[:40],
+                                round(float(row.get("amount", 0)), 2),
+                            )
+                            existing_keys.add(key)
+            except Exception as e:
+                errors.append(f"dedup fetch error: {e}")
+
+            duplicates_skipped = 0
+            async with _httpx.AsyncClient(timeout=10.0) as client:
+                for tx in parsed_transactions:
+                    tx_key = (
+                        str(tx.get("date", ""))[:10],
+                        str(tx.get("description", "")).strip().lower()[:40],
+                        round(float(tx.get("amount", 0)), 2),
+                    )
+                    if tx_key in existing_keys:
+                        duplicates_skipped += 1
+                        continue
+                    try:
+                        r = await client.post(_FINANCIAL_URL, json={
+                            "date":        tx.get("date", ""),
+                            "description": tx.get("description", "unknown"),
+                            "amount":      float(tx.get("amount", 0)),
+                            "category":    tx.get("category", "bank_screen"),
+                            "source":      "screen_ocr",
+                        })
+                        if r.status_code in (200, 201):
+                            transactions_saved += 1
+                            existing_keys.add(tx_key)  # prevent re-adding in same batch
+                        else:
+                            errors.append(f"{tx.get('description','?')}: {r.status_code}")
+                    except Exception as e:
+                        errors.append(str(e))
+
+            if duplicates_skipped:
+                errors.insert(0, f"skipped {duplicates_skipped} duplicates already in pod")
+
+    return {
+        "mode":                  req.mode,
+        "vision_result":         result_text[:500],
+        "transactions_found":    len(parsed_transactions),
+        "transactions_saved":    transactions_saved,
+        "duplicates_skipped":    duplicates_skipped if req.mode == "financial" else 0,
+        "errors":                errors[:5],
+        "raw_result":            result_text,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Voice / TTS — Kilo speaks through desktop speakers
 # ---------------------------------------------------------------------------
 import subprocess as _subprocess
