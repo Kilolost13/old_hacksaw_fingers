@@ -477,6 +477,73 @@ async def files_delete(path: str):
 
 
 # ---------------------------------------------------------------------------
+# Voice / TTS — Kilo speaks through desktop speakers
+# ---------------------------------------------------------------------------
+import subprocess as _subprocess
+import tempfile as _tempfile
+import httpx as _httpx
+
+_TTS_URL = os.getenv("KILO_TTS_URL", "http://192.168.68.57:30801/api/voice/tts")
+_PULSE_ENV = {
+    "PULSE_RUNTIME_PATH": f"/run/user/{os.getuid()}",
+    "XDG_RUNTIME_DIR": f"/run/user/{os.getuid()}",
+    "HOME": os.path.expanduser("~"),
+    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+    "DISPLAY": os.environ.get("DISPLAY", ":0"),
+}
+
+
+class SpeakRequest(BaseModel):
+    text: str
+    voice: str = "kilo"
+    priority: str = "normal"  # "high" skips queue, plays immediately
+
+
+@app.post("/speak")
+async def speak(req: SpeakRequest):
+    """Fetch TTS audio from kilo-voice and play through desktop speakers."""
+    text = req.text.strip()[:1000]
+    if not text:
+        raise HTTPException(400, "text is required")
+
+    # Fetch MP3 from kilo-voice via gateway
+    try:
+        async with _httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                _TTS_URL,
+                params={"text": text, "voice": req.voice},
+            )
+            resp.raise_for_status()
+            audio_bytes = resp.content
+    except Exception as e:
+        raise HTTPException(502, f"TTS fetch failed: {e}")
+
+    # Write to temp file and play via ffplay (non-blocking, quiet)
+    try:
+        with _tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+            f.write(audio_bytes)
+            tmp_path = f.name
+
+        _subprocess.Popen(
+            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", tmp_path],
+            env=_PULSE_ENV,
+            stdout=_subprocess.DEVNULL,
+            stderr=_subprocess.DEVNULL,
+        )
+        return {"status": "playing", "chars": len(text), "voice": req.voice}
+    except Exception as e:
+        raise HTTPException(500, f"Playback failed: {e}")
+
+
+@app.get("/speak/test")
+async def speak_test():
+    """Quick smoke test — plays a short phrase through speakers."""
+    from fastapi.responses import JSONResponse
+    result = await speak(SpeakRequest(text="Kilo voice test — speakers are working."))
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Help text
 # ---------------------------------------------------------------------------
 _HELP = """\

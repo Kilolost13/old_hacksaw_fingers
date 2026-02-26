@@ -329,23 +329,14 @@ def _run_gemini_sync(prompt: str, timeout: int) -> subprocess.CompletedProcess:
 
 
 async def call_gemini(prompt: str, timeout: int = 180) -> Dict[str, Any]:
-    """
-    Run Gemini CLI in a thread so we don't block the event loop.
-    Handles quota-exhausted errors gracefully.
-    """
+    """Forward to HP AI Brain LLM instead of local Gemini CLI fallback."""
     try:
-        proc = await asyncio.to_thread(_run_gemini_sync, prompt, timeout)
-        if proc.returncode == 0:
-            return {"success": True, "message": proc.stdout.strip(), "source": "gemini"}
-        if "exhausted" in proc.stderr.lower() or "429" in proc.stderr:
-            return {
-                "success": False,
-                "message": "Gemini quota exhausted -- will retry when quota resets (~10 h cycle).",
-                "source": "gemini",
-                "retry":  True,
-            }
-        return {"success": False, "message": proc.stderr[:500], "source": "gemini"}
-    except subprocess.TimeoutExpired:
-        return {"success": False, "message": "Gemini timed out (3 min limit).", "source": "gemini"}
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            url = "http://100.118.12.112:30801/api/ai_brain/chat/llm"
+            response = await client.post(url, json={"message": prompt}, headers={"X-API-Key": "kilo-dev-key-2025"})
+            if response.status_code == 200:
+                data = response.json()
+                return {"success": True, "message": data.get("response", ""), "source": "hp_ai_brain"}
+            return {"success": False, "message": f"HP Brain Error: {response.status_code}", "source": "hp_ai_brain"}
     except Exception as e:
-        return {"success": False, "message": str(e), "source": "gemini"}
+        return {"success": False, "message": f"HP Brain Unreachable: {e}", "source": "hp_ai_brain"}

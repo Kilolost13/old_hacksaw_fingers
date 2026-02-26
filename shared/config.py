@@ -6,10 +6,10 @@ Environment variables override defaults for flexibility.
 """
 import os
 
-# ==================== Hardware ====================
-BEELINK_IP = os.getenv("BEELINK_IP", "192.168.68.60")
-HP_IP = os.getenv("HP_IP", "192.168.68.56")
-KILO_IP = os.getenv("KILO_IP", "192.168.68.66")  # Main access point
+# ==================== Hardware (Tailscale Durable IPs) ====================
+BEELINK_IP = os.getenv("BEELINK_IP", "100.105.140.124")
+HP_IP = os.getenv("HP_IP", "100.118.12.112")
+KILO_IP = os.getenv("KILO_IP", "100.118.12.112")  # Point to HP Cluster
 
 # ==================== LLM ====================
 LLM_URL = os.getenv("LLM_URL", f"http://{BEELINK_IP}:11434")
@@ -28,8 +28,8 @@ SERVICE_PORTS = {
     "library": 9006,
     "ai_brain": 9004,
     "cam": 9007,
-    "ml_engine": 9008,
-    "voice": 9009,
+    "ml_engine": 9009,  # Corrected (Was 9008)
+    "voice": 9008,      # Corrected (Was 9009)
     "socketio": 9010,
     "usb_transfer": 8006,
     "gateway": 8000,
@@ -49,8 +49,8 @@ def get_service_url(service: str, use_k3s: bool = True) -> str:
     return f"http://localhost:{port}"
 
 # ==================== Frontend ====================
-FRONTEND_PORT = int(os.getenv("FRONTEND_PORT", "30000"))
-GATEWAY_NODEPORT = int(os.getenv("GATEWAY_NODEPORT", "30800"))
+FRONTEND_PORT = int(os.getenv("FRONTEND_PORT", "30002")) # Corrected NodePort
+GATEWAY_NODEPORT = int(os.getenv("GATEWAY_NODEPORT", "30801")) # Corrected NodePort
 
 # ==================== Database ====================
 DEFAULT_DB_DIR = os.getenv("KILO_DB_DIR", "/data")

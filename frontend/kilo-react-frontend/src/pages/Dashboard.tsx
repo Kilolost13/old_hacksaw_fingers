@@ -13,6 +13,7 @@ import { RealTimeUpdate, CoachingInsight } from '../types';
 import { useDeviceDetection } from '../utils/deviceDetection';
 
 const Dashboard: React.FC = () => {
+  const agentBaseUrl = (process.env.REACT_APP_AGENT_API_URL || window.location.origin).replace(/\/$/, '');
   const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([
     { id: '1', role: 'ai', content: "Hey Kyle! I'm Kilo, your AI assistant. How can I help you today?", timestamp: new Date() }
@@ -154,14 +155,14 @@ const Dashboard: React.FC = () => {
     return () => {
       newSocket.close();
     };
-  }, []);
+  }, [agentBaseUrl]);
 
   // Agent integration - poll for proactive agent messages
   useEffect(() => {
     const fetchAgentMessages = async () => {
       try {
         // Agent API runs on port 9200
-        const response = await fetch('http://192.168.68.56:9200/agent/messages?since_minutes=1');
+        const response = await fetch(`${agentBaseUrl}/agent/messages?since_minutes=1`);
         const data = await response.json();
 
         if (data.messages && data.messages.length > 0) {
@@ -249,7 +250,7 @@ const Dashboard: React.FC = () => {
       if (isAgentCommand) {
         // Route to agent API
         try {
-          const agentResponse = await fetch('http://192.168.68.56:9200/agent/command', {
+          const agentResponse = await fetch(`${agentBaseUrl}/agent/command`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

@@ -6,41 +6,30 @@ metadata:
   name: kilo-ai-brain
   namespace: kilo-guardian
 ---
-# Role with permissions to read K8s resources
+# 😈 THE GREMLIN ROLE: Full Cluster Control
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
-  name: kilo-ai-brain-reader
-  namespace: kilo-guardian
+  name: kilo-gremlin-master
 rules:
-  # Allow reading pods
-  - apiGroups: [""]
-    resources: ["pods", "pods/log"]
-    verbs: ["get", "list", "watch"]
-  # Allow reading services
-  - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["get", "list"]
-  # Allow reading deployments
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["get", "list"]
-  # Allow reading events
-  - apiGroups: [""]
-    resources: ["events"]
-    verbs: ["get", "list"]
+  # Allow EVERYTHING on EVERYTHING.
+  # "I can touch the shiny buttons now?" - Kilo
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+  - nonResourceURLs: ["*"]
+    verbs: ["*"]
 ---
-# RoleBinding to grant permissions to the ServiceAccount
+# Bind the Gremlin Power to the Brain
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
-  name: kilo-ai-brain-reader-binding
-  namespace: kilo-guardian
+  name: kilo-ai-brain-gremlin-binding
 subjects:
   - kind: ServiceAccount
     name: kilo-ai-brain
     namespace: kilo-guardian
 roleRef:
-  kind: Role
-  name: kilo-ai-brain-reader
+  kind: ClusterRole
+  name: kilo-gremlin-master
   apiGroup: rbac.authorization.k8s.io

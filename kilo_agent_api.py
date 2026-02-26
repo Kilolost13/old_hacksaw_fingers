@@ -27,7 +27,8 @@ app = FastAPI(title="Kilo Agent API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
+        "http://localhost:3000", "http://192.168.68.57", "http://100.118.12.112", 
+        "http://192.168.68.57:9200", "http://100.118.12.112:9200",
         "http://localhost:30000",
         f"http://{KILO_IP}:30000",
         f"http://{BEELINK_IP}:30000",
@@ -189,9 +190,41 @@ async def handle_command(cmd: AgentCommand) -> Dict[str, Any]:
     elif any(word in command_text for word in ["med", "medication"]):
         return await get_medications()
     else:
+        # FALLBACK TO AI BRAIN FOR CONVERSATION
+        return await chat_with_brain(cmd.command)
+
+
+async def chat_with_brain(query: str):
+    """Forward unrecognized commands to the HP AI Brain for natural chat"""
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            # We use the durable HP Tailscale IP
+            url = "http://100.118.12.112:30801/api/ai_brain/chat/llm"
+            # The remote server expects a ChatRequest with 'message'
+            response = await client.post(url, json={"message": query}, headers={"X-API-Key": "kilo-dev-key-2025"})
+            
+            if response.status_code == 200:
+                data = response.json()
+                # Extract 'answer' from the remote response
+                answer = data.get("response", "I understood you, but the response was empty.")
+                if isinstance(answer, dict):
+                    answer = answer.get("answer", str(answer))
+                
+                return {
+                    "success": True,
+                    "message": answer,
+                    "data": data
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"Brain is thinking... (Error {response.status_code})",
+                    "data": None
+                }
+    except Exception as e:
         return {
             "success": False,
-            "message": "I can help with: reminders, spending, habits, or medications",
+            "message": f"I couldn't reach my brain: {str(e)}",
             "data": None
         }
 
@@ -228,7 +261,7 @@ async def get_spending():
     """Get spending summary"""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            url = f"{get_service_url('financial')}/summary"
+            url = "http://100.118.12.112:8001/api/finance/summary"
             response = await client.get(url)
             response.raise_for_status()
             summary = response.json()

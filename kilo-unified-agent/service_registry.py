@@ -71,7 +71,7 @@ class ServiceRegistry:
                              ["usb", "file_transfer", "sync", "external drive", "copy files"]),
             "marketing":    ("http://kilo-marketing:80",      80,
                              ["marketing", "website", "landing"]),  # health_ep set below
-            "guardian":     ("http://kilo-guardian:8001",     8001,
+            "guardian":     ("http://100.118.12.112:30801",     8001,
                              ["guardian", "plugin", "reasoning", "persona", "security", "drone", "mesh"]),
         }
         for name, (default_url, port, caps) in defs.items():
@@ -93,14 +93,14 @@ class ServiceRegistry:
         """
         caps_map = {
             "reasoning-engine":  ("http://kilo-reasoning-engine:8001", ["reasoning", "routing", "nlp", "embedding", "intent"]),
-            "plugin-manager":    ("http://kilo-guardian:8001",         ["plugins", "sandbox", "extensions", "dynamic"]),
-            "user-context":      ("http://kilo-guardian:8001",         ["user_profile", "preferences", "history", "learning"]),
-            "persona-manager":   ("http://kilo-guardian:8001",         ["persona", "home", "pro", "business", "style"]),
-            "unified-knowledge": ("http://kilo-guardian:8001",         ["knowledge", "facts"]),
+            "plugin-manager":    ("http://100.118.12.112:30801",         ["plugins", "sandbox", "extensions", "dynamic"]),
+            "user-context":      ("http://100.118.12.112:30801",         ["user_profile", "preferences", "history", "learning"]),
+            "persona-manager":   ("http://100.118.12.112:30801",         ["persona", "home", "pro", "business", "style"]),
+            "unified-knowledge": ("http://100.118.12.112:30801",         ["knowledge", "facts"]),
             "security-monitor":  ("http://kilo-security-monitor:8001", ["security", "intrusion", "honeypot", "audit"]),
             "drone-control":     ("http://kilo-drone-control:8001",    ["drone", "flight", "video", "fpv", "geofence"]),
             "meshtastic":        ("http://kilo-meshtastic:8001",       ["mesh", "tracking", "radio", "lora"]),
-            "watchdog":          ("http://kilo-guardian:8001",         ["process", "auto_restart", "supervisor"]),
+            "watchdog":          ("http://100.118.12.112:30801",         ["process", "auto_restart", "supervisor"]),
         }
         for name, (url, caps) in caps_map.items():
             self.services[name] = ServiceInfo(
@@ -179,7 +179,7 @@ async def resolve_cluster_ips(registry: "ServiceRegistry"):
     import asyncio, json, os
 
     env = os.environ.copy()
-    env["KUBECONFIG"] = os.path.expanduser("~/.kube/config")
+    env["KUBECONFIG"] = os.getenv("KUBECONFIG", os.path.expanduser("~/.kube/config"))
 
     try:
         proc = await asyncio.create_subprocess_exec(

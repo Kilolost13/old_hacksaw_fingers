@@ -83,7 +83,7 @@ async def get_pod_logs(
     args = ["logs", "-n", namespace, pod_name, f"--tail={tail}"]
     if container:
         args.extend(["-c", container])
-    res = await _kubectl(args, timeout=15)
+    res = await _kubectl(args, timeout=60)
     return {
         "logs": res["stdout"],
         "error": res["stderr"] if res["returncode"] != 0 else None,
@@ -96,7 +96,7 @@ async def exec_in_pod(
     namespace: str = NAMESPACE,
 ) -> Dict:
     res = await _kubectl(
-        ["exec", "-n", namespace, pod_name, "--"] + command, timeout=30
+        ["exec", "-n", namespace, pod_name, "--"] + command, timeout=60
     )
     return {
         "stdout":     res["stdout"],
@@ -163,7 +163,7 @@ async def scale_deployment(
 
 
 async def get_resource_usage(namespace: str = NAMESPACE) -> Dict:
-    res = await _kubectl(["top", "pods", "-n", namespace], timeout=15)
+    res = await _kubectl(["top", "pods", "-n", namespace], timeout=60)
     return {
         "usage": res["stdout"],
         "error": res["stderr"] if res["returncode"] != 0 else None,

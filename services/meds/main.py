@@ -20,6 +20,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 from shared.models import Med, OcrJob
 from shared.utils.ocr import preprocess_image_for_ocr, parse_frequency, parse_times
+from shared.utils.persona import get_quip
+from autonomy import get_due_meds, record_taken
 
 # Use shared database path from PVC
 db_url = os.getenv("DATABASE_URL", "sqlite:////app/kilo_data/kilo_guardian.db")
@@ -27,7 +29,7 @@ engine = create_engine(db_url, connect_args={"check_same_thread": False})
 
 IMAGE_STORAGE_DIR = Path("/app/kilo_data/prescription_images")
 
-app = FastAPI(title="Kilo Meds Service")
+app = FastAPI(title="Kilo Meds Service - Gremlin Edition 😈")
 
 @app.on_event("startup")
 async def startup():
@@ -35,40 +37,76 @@ async def startup():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "message": "I'm alive and lurking! 😈"}
 
 @app.get("/")
 def list_meds():
     with Session(engine) as session:
-        return session.exec(select(Med)).all()
+        return {
+            "meds": session.exec(select(Med)).all(),
+            "gremlin_message": "I've counted every single pill. Don't try to hide them! 💊"
+        }
 
-@app.post("/extract")
-async def extract_med(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
-    job_id = str(uuid.uuid4())
-    img_bytes = await file.read()
-    image = Image.open(BytesIO(img_bytes))
-    
-    # Save for record
-    path = IMAGE_STORAGE_DIR / f"{job_id}.jpg"
-    image.save(path)
+@app.get("/due")
+def list_due_meds():
+    """Autonomous endpoint to check what is due NOW with Gremlin flavor."""
+    due = get_due_meds(engine)
+    message = get_quip("meds_due") if due else "Everything is taken! How boringly responsible of you. 🙄"
+    return {
+        "due": due,
+        "count": len(due),
+        "gremlin_message": message
+    }
 
-    with Session(engine) as session:
-        job = OcrJob(job_id=job_id, status="pending", image_path=str(path))
-        session.add(job)
-        session.commit()
-
-    background_tasks.add_task(process_med_ocr, job_id)
-    return {"job_id": job_id, "status": "pending"}
-
-async def process_med_ocr(job_id: str):
-    # This would call AI Brain or run local Tesseract using shared.utils.ocr
-    # Simplified for brevity in this step
-    pass
+@app.post("/take/{med_id}")
+def take_med(med_id: int):
+    """Mark a medication as taken and update local state."""
+    med = record_taken(engine, med_id)
+    if not med:
+        raise HTTPException(status_code=404, detail="I couldn't find that bottle! Did you eat it? 🧐")
+    return {
+        "med": med,
+        "gremlin_message": get_quip("meds_taken")
+    }
 
 @app.post("/add")
+
 def add_med(med: Med):
+
     with Session(engine) as session:
+
         session.add(med)
+
         session.commit()
+
         session.refresh(med)
-        return med
+
+        return {
+
+            "med": med,
+
+            "gremlin_message": f"Added {med.name}. More chores for you, more data for ME! 😈"
+
+        }
+
+
+
+@app.delete("/{med_id}")
+
+def delete_med(med_id: int):
+
+    """Delete a medication by ID. Kilo likes deleting things! 😈"""
+
+    with Session(engine) as session:
+
+        med = session.get(Med, med_id)
+
+        if not med:
+
+            raise HTTPException(status_code=404, detail="I couldn't find that med! Maybe a digital rat ate it? 🐀")
+
+        session.delete(med)
+
+        session.commit()
+
+        return {"message": f"Hehehe! {med.name} has been erased from existence! 💥"}

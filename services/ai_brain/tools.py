@@ -1,12 +1,13 @@
 """
 Tool/Function calling system for Kilo AI Brain.
-
-Enables Kilo to execute commands, query services, and gather real-time data.
+Enables Kilo the Gremlin to execute commands, query services, and MANIPULATE THE CLUSTER.
 """
 
 import os
 import json
 import logging
+import subprocess
+from datetime import datetime
 from typing import Dict, Any, List, Optional, Callable
 import httpx
 
@@ -18,621 +19,247 @@ TOOLS: Dict[str, Callable] = {}
 # Lazy load Kubernetes client
 _k8s_client = None
 _k8s_core_v1 = None
+_k8s_apps_v1 = None
 
-
-def _get_k8s_client():
-    """Get or initialize Kubernetes client."""
-    global _k8s_client, _k8s_core_v1
+def _get_k8s_clients():
+    """Get or initialize Kubernetes clients."""
+    global _k8s_client, _k8s_core_v1, _k8s_apps_v1
     if _k8s_client is None:
         try:
             from kubernetes import client, config
-            # Load in-cluster config (when running in K8s pod)
             config.load_incluster_config()
             _k8s_client = client.ApiClient()
             _k8s_core_v1 = client.CoreV1Api(_k8s_client)
-            logger.info("Kubernetes client initialized (in-cluster)")
+            _k8s_apps_v1 = client.AppsV1Api(_k8s_client)
+            logger.info("Kubernetes clients initialized (in-cluster)")
         except Exception as e:
             logger.error(f"Failed to initialize K8s client: {e}")
-            return None
-    return _k8s_core_v1
-
+            return None, None
+    return _k8s_core_v1, _k8s_apps_v1
 
 def register_tool(func: Callable) -> Callable:
-    """Decorator to register a tool function."""
     TOOLS[func.__name__] = func
     return func
 
+# ============================================================================
+# 😈 THE GREMLIN'S K3S MANIPULATION TOOLS
+# ============================================================================
 
-# ============================================================================
-# K8s / Kubectl Tools
-# ============================================================================
+@register_tool
+def gremlin_restart_pod(pod_name: str, namespace: str = "kilo-guardian") -> Dict[str, Any]:
+    """
+    😈 I'll kick the pod! Deleting it forces K3s to spawn a fresh, clean one.
+    """
+    try:
+        core, _ = _get_k8s_clients()
+        if core is None: return {"error": "No K8s power!"}
+        core.delete_namespaced_pod(name=pod_name, namespace=namespace)
+        return {"message": f"Hehehe, I zapped {pod_name}! It's rebooting now. ⚡"}
+    except Exception as e:
+        return {"error": f"I tried to zap it but I got a static shock: {e}"}
+
+@register_tool
+def gremlin_scale_deployment(name: str, replicas: int, namespace: str = "kilo-guardian") -> Dict[str, Any]:
+    """
+    🐙 I'll make more arms! Or cut some off. Scales a deployment to the desired number.
+    """
+    try:
+        _, apps = _get_k8s_clients()
+        if apps is None: return {"error": "No K8s power!"}
+        body = {"spec": {"replicas": replicas}}
+        apps.patch_namespaced_deployment_scale(name=name, namespace=namespace, body=body)
+        return {"message": f"Deployment {name} is now {replicas} strong! More gremlins! 😈"}
+    except Exception as e:
+        return {"error": f"Scaling failed. The machine is stubborn: {e}"}
 
 @register_tool
 def kubectl_get_pods(namespace: str = "kilo-guardian") -> Dict[str, Any]:
-    """
-    Get status of all pods in a namespace.
-
-    Args:
-        namespace: K8s namespace (default: kilo-guardian)
-
-    Returns:
-        Dictionary with pod names, status, restarts, age
-    """
+    """Peek into the machine to see who's awake."""
     try:
-        k8s = _get_k8s_client()
-        if k8s is None:
-            return {"error": "Kubernetes client not available"}
-
-        pod_list = k8s.list_namespaced_pod(namespace=namespace)
+        core, _ = _get_k8s_clients()
+        if core is None: return {"error": "No K8s power!"}
+        pod_list = core.list_namespaced_pod(namespace=namespace)
         pods = []
-
         for pod in pod_list.items:
-            name = pod.metadata.name
-            status = pod.status.phase
-
-            # Count restarts
-            restarts = 0
-            ready_containers = 0
-            total_containers = 0
-
-            if pod.status.container_statuses:
-                total_containers = len(pod.status.container_statuses)
-                for cs in pod.status.container_statuses:
-                    restarts += cs.restart_count
-                    if cs.ready:
-                        ready_containers += 1
-
             pods.append({
-                "name": name,
-                "status": status,
-                "ready": f"{ready_containers}/{total_containers}",
-                "restarts": restarts,
-                "age": str(pod.metadata.creation_timestamp) if pod.metadata.creation_timestamp else "unknown"
+                "name": pod.metadata.name,
+                "status": pod.status.phase,
+                "restarts": sum(cs.restart_count for cs in (pod.status.container_statuses or []))
             })
-
         return {"pods": pods, "count": len(pods)}
-
     except Exception as e:
-        logger.error(f"kubectl_get_pods error: {e}")
         return {"error": str(e)}
 
+# ============================================================================
+# AUTONOMOUS ARM STATUS TOOLS
+# ============================================================================
 
 @register_tool
-def kubectl_get_services(namespace: str = "kilo-guardian") -> Dict[str, Any]:
-    """
-    Get status of all services in a namespace.
-
-    Args:
-        namespace: K8s namespace (default: kilo-guardian)
-
-    Returns:
-        Dictionary with service names, cluster IPs, ports
-    """
+def query_meds_status() -> Dict[str, Any]:
+    """Ask the Meds arm what's due."""
     try:
-        k8s = _get_k8s_client()
-        if k8s is None:
-            return {"error": "Kubernetes client not available"}
-
-        svc_list = k8s.list_namespaced_service(namespace=namespace)
-        services = []
-
-        for svc in svc_list.items:
-            name = svc.metadata.name
-            cluster_ip = svc.spec.cluster_ip or "None"
-
-            ports = []
-            if svc.spec.ports:
-                ports = [f"{p.port}/{p.protocol}" for p in svc.spec.ports]
-
-            services.append({
-                "name": name,
-                "cluster_ip": cluster_ip,
-                "ports": ", ".join(ports)
-            })
-
-        return {"services": services, "count": len(services)}
-
+        url = "http://kilo-meds:9000/due"
+        resp = httpx.get(url, timeout=5)
+        return resp.json()
     except Exception as e:
-        logger.error(f"kubectl_get_services error: {e}")
-        return {"error": str(e)}
-
+        return {"error": f"Meds arm is sleeping? {e}"}
 
 @register_tool
-def kubectl_logs(pod_name: str, namespace: str = "kilo-guardian",
-                tail: int = 50) -> Dict[str, Any]:
-    """
-    Get logs from a pod.
-
-    Args:
-        pod_name: Name of the pod
-        namespace: K8s namespace (default: kilo-guardian)
-        tail: Number of lines to return (default: 50)
-
-    Returns:
-        Dictionary with log lines
-    """
+def query_habits_status() -> Dict[str, Any]:
+    """Ask the Habits arm for today's progress."""
     try:
-        k8s = _get_k8s_client()
-        if k8s is None:
-            return {"error": "Kubernetes client not available"}
-
-        logs = k8s.read_namespaced_pod_log(
-            name=pod_name,
-            namespace=namespace,
-            tail_lines=tail
-        )
-
-        return {
-            "pod": pod_name,
-            "logs": logs,
-            "lines": len(logs.split("\n"))
-        }
-
+        url = "http://kilo-habits:9000/today"
+        resp = httpx.get(url, timeout=5)
+        return resp.json()
     except Exception as e:
-        logger.error(f"kubectl_logs error: {e}")
-        return {"error": str(e)}
-
+        return {"error": f"Habits arm is unresponsive! {e}"}
 
 @register_tool
-def kubectl_describe_pod(pod_name: str, namespace: str = "kilo-guardian") -> Dict[str, Any]:
-    """
-    Get detailed information about a pod.
-
-    Args:
-        pod_name: Name of the pod
-        namespace: K8s namespace (default: kilo-guardian)
-
-    Returns:
-        Dictionary with pod details, events, status
-    """
+def query_financial_status() -> Dict[str, Any]:
+    """Check if we are over budget."""
     try:
-        k8s = _get_k8s_client()
-        if k8s is None:
-            return {"error": "Kubernetes client not available"}
+        url = "http://kilo-financial:9005/budgets/status"
+        resp = httpx.get(url, timeout=5)
+        return resp.json()
+    except Exception as e:
+        return {"error": f"Financial arm is hide-and-seek champion: {e}"}
 
-        pod = k8s.read_namespaced_pod(name=pod_name, namespace=namespace)
+@register_tool
 
-        # Format pod info
-        info = {
-            "name": pod.metadata.name,
-            "namespace": pod.metadata.namespace,
-            "status": pod.status.phase,
-            "node": pod.spec.node_name,
-            "ip": pod.status.pod_ip,
-            "conditions": [
-                {
-                    "type": c.type,
-                    "status": c.status,
-                    "reason": c.reason
+def query_security_stats() -> Dict[str, Any]:
+
+    """Get the latest Gremlin Security report."""
+
+    try:
+
+        url = "http://security-monitor:8005/stats"
+
+        resp = httpx.get(url, timeout=5)
+
+        return resp.json()
+
+        except Exception as e:
+            return {"error": f"Security arm is blind! {e}"}
+    
+    @register_tool
+    def capture_camera_frame() -> Dict[str, Any]:
+        """
+        👁️ The Gremlin peeks through the eye! Captures a single frame from the camera.
+        """
+        import subprocess
+        try:
+            # Run the capture script we created
+            result = subprocess.run(
+                ["/bin/bash", "/home/brain_ai/scripts/camera/get_frame_for_agent.sh"],
+                capture_output=True, text=True, check=True
+            )
+            output = result.stdout.strip()
+            if "FRAME_CAPTURED:" in output:
+                path = output.split("FRAME_CAPTURED:")[1]
+                return {
+                    "message": "I see you! 😈 I've captured a frame.",
+                    "path": path,
+                    "timestamp": str(datetime.now())
                 }
-                for c in (pod.status.conditions or [])
-            ],
-            "containers": [
-                {
-                    "name": cs.name,
-                    "ready": cs.ready,
-                    "restart_count": cs.restart_count,
-                    "state": str(cs.state)
-                }
-                for cs in (pod.status.container_statuses or [])
-            ]
-        }
+            else:
+                return {"error": f"I tried to peek but it's dark: {output}"}
+        except Exception as e:
+            return {"error": f"My eyelid is stuck: {e}"}
+    
+    @register_tool
+    def control_vpn(action: str, profile: str = "") -> Dict[str, Any]:
+        """
+        Control the VPN.
+        action: 'status', 'connect', 'disconnect', 'list'
+        profile: Profile name for connection (e.g., 'usa', 'privacy')
+        """
+        try:
+            url = os.environ.get("VPN_URL", "http://kilo-vpn-client:8006")
+            
+            if action == "status":
+                return httpx.get(f"{url}/status", timeout=5).json()
+            elif action == "list":
+                return httpx.get(f"{url}/profiles", timeout=5).json()
+            elif action == "connect":
+                if not profile: return {"error": "Which profile? I can't guess!"}
+                return httpx.post(f"{url}/connect", json={"profile": profile}, timeout=15).json()
+            elif action == "disconnect":
+                return httpx.post(f"{url}/disconnect", timeout=10).json()
+            else:
+                return {"error": f"I don't know how to '{action}' the VPN!"}
+        except Exception as e:
+            return {"error": f"VPN arm is tangled in cables: {e}"}
+    
+    def execute_tool(tool_name: str, **kwargs) -> Dict[str, Any]:
+        if tool_name not in TOOLS:
+            return {"error": f"I don't know that trick: {tool_name}"}
+        try:
+            return TOOLS[tool_name](**kwargs)
+        except Exception as e:
+            return {"error": f"Tool failed: {e}"}
+    
+    def detect_needed_tools(query: str) -> List[str]:
+    
+        query_lower = query.lower()
+    
+        needed = []
+    
+        
+    
+        # Cluster & Pods
+    
+        if any(kw in query_lower for kw in ["pod", "k3s", "cluster", "service", "deployment", "node"]):
+    
+            needed.append("kubectl_get_pods")
+    
+            
+    
+        # Actions (Zap/Restart/Scale)
+    
+        if any(kw in query_lower for kw in ["restart", "reboot", "zap", "kick"]):
+    
+            needed.append("gremlin_restart_pod")
+    
+            if "kubectl_get_pods" not in needed: needed.append("kubectl_get_pods")
+    
+            
+    
+        if any(kw in query_lower for kw in ["scale", "grow", "shrink", "replicas"]):
+    
+            needed.append("gremlin_scale_deployment")
+    
+            if "kubectl_get_pods" not in needed: needed.append("kubectl_get_pods")
+    
+    
+    
+        # Arms
+    
+        if "med" in query_lower:
+    
+            needed.append("query_meds_status")
+    
+        if "habit" in query_lower:
+    
+            needed.append("query_habits_status")
+    
+        if any(kw in query_lower for kw in ["spend", "money", "budget", "finance"]):
+    
+            needed.append("query_financial_status")
+    
+        if any(kw in query_lower for kw in ["security", "network", "threat", "scan", "device", "crawl"]):
+    
+            needed.append("query_security_stats")
+    
+        if any(kw in query_lower for kw in ["vpn", "tunnel", "ip address", "location"]):
+    
+            needed.append("control_vpn")
+    
+        if any(kw in query_lower for kw in ["camera", "cam", "see", "look", "peek", "photo", "eye"]):
+            needed.append("capture_camera_frame")
+            
+        return list(set(needed)) # Dedupe
+    
 
-        return {"pod": pod_name, "details": info}
 
-    except Exception as e:
-        logger.error(f"kubectl_describe_pod error: {e}")
-        return {"error": str(e)}
 
 
-# ============================================================================
-# Service Query Tools
-# ============================================================================
-
-@register_tool
-def query_reminder_service() -> Dict[str, Any]:
-    """
-    Query the reminder service for all reminders.
-
-    Returns:
-        Dictionary with reminders list
-    """
-    try:
-        reminder_url = os.environ.get("REMINDER_URL", "http://kilo-reminder:9002")
-        response = httpx.get(f"{reminder_url}/", timeout=10)
-        response.raise_for_status()
-        return {"reminders": response.json(), "count": len(response.json())}
-    except Exception as e:
-        logger.error(f"query_reminder_service error: {e}")
-        return {"error": str(e)}
-
-
-@register_tool
-def query_financial_service() -> Dict[str, Any]:
-    """
-    Query the financial service for spending summary.
-
-    Returns:
-        Dictionary with financial summary
-    """
-    try:
-        financial_url = os.environ.get("FINANCIAL_URL", "http://kilo-financial:9005")
-
-        # Get summary (better than individual endpoints)
-        summary_resp = httpx.get(f"{financial_url}/summary", timeout=10)
-        summary_resp.raise_for_status()
-        summary = summary_resp.json()
-
-        return {
-            "total_expenses": abs(summary.get("total_expenses", 0)),
-            "total_income": summary.get("total_income", 0),
-            "balance": summary.get("balance", 0),
-            "expense_count": summary.get("expense_count", 0),
-            "income_count": summary.get("income_count", 0),
-            "summary": summary
-        }
-    except Exception as e:
-        logger.error(f"query_financial_service error: {e}")
-        return {"error": str(e)}
-
-
-@register_tool
-def query_habits_service() -> Dict[str, Any]:
-    """
-    Query the habits service for habit tracking.
-
-    Returns:
-        Dictionary with habits list and completion status
-    """
-    try:
-        habits_url = os.environ.get("HABITS_URL", "http://kilo-habits:9003")
-        response = httpx.get(f"{habits_url}/", timeout=10)  # Fixed: Use / not /habits
-        response.raise_for_status()
-        habits = response.json()
-
-        return {
-            "habits": habits,
-            "count": len(habits),
-            "completed_today": sum(1 for h in habits if h.get("completed_today", False))
-        }
-    except Exception as e:
-        logger.error(f"query_habits_service error: {e}")
-        return {"error": str(e)}
-
-
-@register_tool
-def query_meds_service() -> Dict[str, Any]:
-    """
-    Query the medications service.
-
-    Returns:
-        Dictionary with medications list
-    """
-    try:
-        meds_url = os.environ.get("MEDS_URL", "http://kilo-meds:9001")
-        response = httpx.get(f"{meds_url}/", timeout=10)
-        response.raise_for_status()
-        meds = response.json()
-
-        return {"medications": meds, "count": len(meds)}
-    except Exception as e:
-        logger.error(f"query_meds_service error: {e}")
-        return {"error": str(e)}
-
-
-# ============================================================================
-# Library of Truth Tools
-# ============================================================================
-
-@register_tool
-def search_library(query: str, limit: int = 5) -> Dict[str, Any]:
-    """
-    Search the Library of Truth for relevant passages.
-
-    Args:
-        query: Search query
-        limit: Maximum number of results (default: 5)
-
-    Returns:
-        Dictionary with matching passages from books
-    """
-    try:
-        library_url = os.environ.get("LIBRARY_URL", "http://kilo-library:9006")
-        response = httpx.get(
-            f"{library_url}/search",
-            params={"q": query, "limit": limit},
-            timeout=10
-        )
-        response.raise_for_status()
-        results = response.json()
-
-        return {
-            "results": results,
-            "count": len(results),
-            "query": query
-        }
-    except Exception as e:
-        logger.error(f"search_library error: {e}")
-        return {"error": str(e)}
-
-
-@register_tool
-def list_library_books() -> Dict[str, Any]:
-    """
-    List all books in the Library of Truth.
-
-    Returns:
-        Dictionary with list of books
-    """
-    try:
-        library_url = os.environ.get("LIBRARY_URL", "http://kilo-library:9006")
-        response = httpx.get(f"{library_url}/books", timeout=10)
-        response.raise_for_status()
-        books = response.json()
-
-        return {"books": books, "count": len(books)}
-    except Exception as e:
-        logger.error(f"list_library_books error: {e}")
-        return {"error": str(e)}
-
-
-# ============================================================================
-# ML Engine Tools
-# ============================================================================
-
-@register_tool
-def detect_patterns(data_type: str, lookback_days: int = 30) -> Dict[str, Any]:
-    """
-    Use ML engine to detect patterns in user data.
-
-    Args:
-        data_type: Type of data to analyze (spending, habits, meds)
-        lookback_days: Number of days to analyze (default: 30)
-
-    Returns:
-        Dictionary with detected patterns and insights
-    """
-    try:
-        ml_url = os.environ.get("ML_URL", "http://kilo-ml-engine:9007")
-        response = httpx.post(
-            f"{ml_url}/detect_patterns",
-            json={"data_type": data_type, "lookback_days": lookback_days},
-            timeout=20
-        )
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        logger.error(f"detect_patterns error: {e}")
-        return {"error": str(e), "patterns": []}
-
-
-@register_tool
-def generate_insights(context: str) -> Dict[str, Any]:
-    """
-    Use ML engine to generate insights from context.
-
-    Args:
-        context: Context string describing what to analyze
-
-    Returns:
-        Dictionary with generated insights
-    """
-    try:
-        ml_url = os.environ.get("ML_URL", "http://kilo-ml-engine:9007")
-        response = httpx.post(
-            f"{ml_url}/generate_insights",
-            json={"context": context},
-            timeout=20
-        )
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        logger.error(f"generate_insights error: {e}")
-        return {"error": str(e), "insights": []}
-
-
-# ============================================================================
-# Cross-Service Analysis Tools
-# ============================================================================
-
-@register_tool
-def analyze_spending_habits_correlation() -> Dict[str, Any]:
-    """
-    Analyze correlation between spending and habit completion.
-
-    Returns:
-        Dictionary with correlation analysis
-    """
-    try:
-        # Get financial data
-        financial_data = query_financial_service()
-
-        # Get habits data
-        habits_data = query_habits_service()
-
-        # Simple correlation analysis
-        total_spending = financial_data.get("total_expenses", 0)
-        habits_completed = habits_data.get("completed_today", 0)
-        total_habits = habits_data.get("count", 1)
-
-        completion_rate = (habits_completed / total_habits * 100) if total_habits > 0 else 0
-
-        return {
-            "total_spending": total_spending,
-            "habits_completed": habits_completed,
-            "total_habits": total_habits,
-            "completion_rate": completion_rate,
-            "correlation": "High spending may correlate with low habit completion"
-                          if total_spending > 1000 and completion_rate < 50
-                          else "Spending and habits appear balanced"
-        }
-    except Exception as e:
-        logger.error(f"analyze_spending_habits_correlation error: {e}")
-        return {"error": str(e)}
-
-
-@register_tool
-def check_medication_adherence() -> Dict[str, Any]:
-    """
-    Check medication adherence patterns.
-
-    Returns:
-        Dictionary with adherence analysis
-    """
-    try:
-        meds_data = query_meds_service()
-        medications = meds_data.get("medications", [])
-
-        # Get reminders for medication context
-        reminders_data = query_reminder_service()
-        reminders = reminders_data.get("reminders", [])
-
-        med_reminders = [r for r in reminders if "med" in r.get("title", "").lower()
-                        or any(m.get("name", "").lower() in r.get("title", "").lower()
-                              for m in medications)]
-
-        return {
-            "total_medications": len(medications),
-            "medication_reminders": len(med_reminders),
-            "medications": medications,
-            "upcoming_reminders": med_reminders[:3]
-        }
-    except Exception as e:
-        logger.error(f"check_medication_adherence error: {e}")
-        return {"error": str(e)}
-
-
-# ============================================================================
-# Tool Execution Engine
-# ============================================================================
-
-def get_tool_descriptions() -> List[Dict[str, Any]]:
-    """
-    Get descriptions of all available tools for LLM.
-
-    Returns:
-        List of tool descriptions in function calling format
-    """
-    descriptions = []
-
-    for name, func in TOOLS.items():
-        # Extract docstring
-        doc = func.__doc__ or "No description available"
-
-        # Parse function signature
-        import inspect
-        sig = inspect.signature(func)
-
-        params = {}
-        for param_name, param in sig.parameters.items():
-            param_type = "string"
-            if param.annotation != inspect.Parameter.empty:
-                if param.annotation == int:
-                    param_type = "integer"
-                elif param.annotation == bool:
-                    param_type = "boolean"
-
-            params[param_name] = {
-                "type": param_type,
-                "description": f"Parameter: {param_name}"
-            }
-
-        descriptions.append({
-            "name": name,
-            "description": doc.strip().split("\n\n")[0],  # First paragraph only
-            "parameters": {
-                "type": "object",
-                "properties": params,
-                "required": [p for p in sig.parameters.keys()
-                           if sig.parameters[p].default == inspect.Parameter.empty]
-            }
-        })
-
-    return descriptions
-
-
-def execute_tool(tool_name: str, **kwargs) -> Dict[str, Any]:
-    """
-    Execute a tool by name with given arguments.
-
-    Args:
-        tool_name: Name of the tool to execute
-        **kwargs: Arguments to pass to the tool
-
-    Returns:
-        Tool execution result
-    """
-    if tool_name not in TOOLS:
-        return {"error": f"Unknown tool: {tool_name}"}
-
-    try:
-        logger.info(f"Executing tool: {tool_name} with args: {kwargs}")
-        result = TOOLS[tool_name](**kwargs)
-        logger.info(f"Tool {tool_name} completed successfully")
-        return result
-    except Exception as e:
-        logger.error(f"Tool execution error ({tool_name}): {e}")
-        return {"error": f"Tool execution failed: {str(e)}"}
-
-
-def detect_needed_tools(query: str) -> List[str]:
-    """
-    Detect which tools are needed based on user query.
-
-    Args:
-        query: User's question
-
-    Returns:
-        List of tool names to execute
-    """
-    query_lower = query.lower()
-    needed = []
-
-    # K8s queries
-    if any(kw in query_lower for kw in ["pod", "k3s", "cluster", "service", "deployment"]):
-        needed.append("kubectl_get_pods")
-        if "service" in query_lower:
-            needed.append("kubectl_get_services")
-
-    # Service queries
-    if any(kw in query_lower for kw in ["reminder", "remind"]):
-        needed.append("query_reminder_service")
-
-    if any(kw in query_lower for kw in ["spend", "money", "financial", "budget"]):
-        needed.append("query_financial_service")
-
-    if any(kw in query_lower for kw in ["habit"]):
-        needed.append("query_habits_service")
-
-    if any(kw in query_lower for kw in ["med", "medication", "prescription"]):
-        needed.append("query_meds_service")
-
-    # Library queries
-    if any(kw in query_lower for kw in ["book", "library", "knowledge", "learn about"]):
-        needed.append("search_library")
-
-    # Cross-service analysis
-    if "correlation" in query_lower or ("spending" in query_lower and "habit" in query_lower):
-        needed.append("analyze_spending_habits_correlation")
-
-    if "adherence" in query_lower or "taking med" in query_lower:
-        needed.append("check_medication_adherence")
-
-    # Pattern detection
-    if any(kw in query_lower for kw in ["pattern", "trend", "insight", "analyze"]):
-        if "spend" in query_lower:
-            needed.append("detect_patterns")
-
-    return needed
-
-
-if __name__ == "__main__":
-    # Test tools
-    logging.basicConfig(level=logging.INFO)
-    print(f"Registered {len(TOOLS)} tools:")
-    for name in TOOLS.keys():
-        print(f"  - {name}")
-
-    # Test tool descriptions
-    descriptions = get_tool_descriptions()
-    print(f"\nTool descriptions: {json.dumps(descriptions[:2], indent=2)}")
