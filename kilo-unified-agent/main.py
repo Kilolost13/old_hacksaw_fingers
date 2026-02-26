@@ -381,6 +381,102 @@ app.add_api_route("/api/generate",        _gemini_bridge, methods=["POST"])
 
 
 # ---------------------------------------------------------------------------
+# File system access API — lets Kilo's pod read/list/scan/delete files
+# ---------------------------------------------------------------------------
+import os as _os, stat as _stat, hashlib as _hashlib
+
+_SUSPICIOUS_EXT = {".exe",".msi",".bat",".cmd",".vbs",".ps1",".sh",".bash",
+                   ".jar",".apk",".appimage",".deb",".rpm"}
+_BAD_PATTERNS = [b"eval(base64",b"exec(base64",b"powershell -enc",b"/dev/tcp/",
+                 b"nc -e ",b"bash -i ",b"rm -rf /",b"xmrig",b"stratum+tcp",
+                 b"chmod 777",b"wget http",b"curl http"]
+
+@app.get("/files/list")
+async def files_list(path: str, max_entries: int = 100):
+    """List directory contents."""
+    if not _os.path.exists(path):
+        raise HTTPException(404, f"Path not found: {path}")
+    if not _os.path.isdir(path):
+        raise HTTPException(400, f"Not a directory: {path}")
+    entries = []
+    for name in sorted(_os.listdir(path))[:max_entries]:
+        full = _os.path.join(path, name)
+        try:
+            s = _os.stat(full)
+            entries.append({"name": name, "type": "dir" if _os.path.isdir(full) else "file",
+                            "size": s.st_size, "modified": s.st_mtime})
+        except Exception:
+            entries.append({"name": name, "type": "unknown"})
+    return {"path": path, "count": len(entries), "entries": entries}
+
+
+@app.get("/files/read")
+async def files_read(path: str, max_lines: int = 100):
+    """Read a file."""
+    if not _os.path.exists(path):
+        raise HTTPException(404, f"File not found: {path}")
+    if _os.path.isdir(path):
+        raise HTTPException(400, "Is a directory, use /files/list")
+    size = _os.path.getsize(path)
+    with open(path, "r", errors="replace") as f:
+        lines = f.readlines()
+    truncated = len(lines) > max_lines
+    return {"path": path, "size": size, "total_lines": len(lines),
+            "truncated": truncated, "content": "".join(lines[:max_lines])}
+
+
+@app.get("/files/scan")
+async def files_scan(path: str, recursive: bool = False):
+    """Security scan a directory for suspicious files."""
+    if not _os.path.exists(path):
+        raise HTTPException(404, f"Path not found: {path}")
+    flagged = []
+    scanned = 0
+    walk = _os.walk(path) if recursive else [(path, [], _os.listdir(path))]
+    for root, dirs, files in walk:
+        for fname in files:
+            if scanned >= 300:
+                break
+            scanned += 1
+            full = _os.path.join(root, fname)
+            _, ext = _os.path.splitext(fname.lower())
+            reasons, risk = [], "clean"
+            if ext in _SUSPICIOUS_EXT:
+                reasons.append(f"suspicious extension ({ext})")
+                risk = "medium"
+            try:
+                with open(full, "rb") as f:
+                    head = f.read(8192)
+                if head[:4] in (b"\x7fELF", b"MZ\x90\x00"):
+                    reasons.append("binary executable")
+                    risk = "medium" if risk == "clean" else risk
+                head_lower = head.lower()
+                for pat in _BAD_PATTERNS:
+                    if pat in head_lower:
+                        risk = "HIGH"
+                        reasons.append(f"bad pattern: {pat[:25].decode('utf-8','replace')}")
+            except Exception as e:
+                reasons.append(f"read error: {e}")
+            if risk != "clean":
+                flagged.append({"path": full, "risk": risk, "reasons": reasons})
+        if scanned >= 300:
+            break
+    return {"path": path, "scanned": scanned, "flagged": flagged,
+            "summary": f"Scanned {scanned} files, {len(flagged)} flagged"}
+
+
+@app.delete("/files/delete")
+async def files_delete(path: str):
+    """Delete a file."""
+    if not path or path in ("/", "/home", "/home/brain_ai"):
+        raise HTTPException(400, "Refusing to delete that path")
+    if not _os.path.exists(path):
+        raise HTTPException(404, f"Not found: {path}")
+    _os.remove(path)
+    return {"deleted": path, "status": "ok"}
+
+
+# ---------------------------------------------------------------------------
 # Help text
 # ---------------------------------------------------------------------------
 _HELP = """\
